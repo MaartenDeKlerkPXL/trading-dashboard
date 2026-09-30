@@ -1,0 +1,25 @@
+# Trading Dashboard configuration.
+# Change a value, save the file and restart the app (Ctrl+C, then ./start.sh).
+
+[app]
+host = "127.0.0.1"   # only reachable from this Mac
+port = 8000
+timezone = "Europe/Amsterdam"
+
+[account]
+currency = "EUR"
+starting_capital = 1000
+leverage = 100
+risk_per_trade_pct = 2.0
+
+[execution]
+# backtest | paper | live
+# "live" is refused until phase 6 and will always require an extra
+# confirmation in the dashboard. Keep this on "paper" unless you are sure.
+mode = "paper"
+
+[data]
+# Phase 1 uses Dukascopy (free, no account). BlackBull (cTrader) follows later.
+provider = "dukascopy"
+default_symbol = "XAUUSD"
+default_timeframe = "H1"

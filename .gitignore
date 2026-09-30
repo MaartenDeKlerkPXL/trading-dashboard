@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local data (database, logs) - never commit
+data/*
+!data/.gitkeep
+
+# Secrets - never commit
+.env
+
+# macOS
+.DS_Store

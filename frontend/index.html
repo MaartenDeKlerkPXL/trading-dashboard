@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trading Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Crect width=%2724%27 height=%2724%27 rx=%275%27 fill=%27%23161a22%27/%3E%3Cpath d=%27M4 17l5-6 4 3 7-9%27 fill=%27none%27 stroke=%27%23d4ad5c%27 stroke-width=%272.4%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Naar de inhoud</a>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand__mark" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 17l5-6 4 3 7-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand__name">Trading Dashboard</span>
+    </div>
+
+    <div class="topbar__meta">
+      <span class="mode-badge" id="modeBadge" title="Uitvoeringsmodus uit config.toml">Paper</span>
+      <span class="server-status" id="serverStatus" role="status" aria-live="polite">
+        <span class="server-status__dot" aria-hidden="true"></span>
+        <span class="server-status__text">Verbinden…</span>
+      </span>
+      <time class="clock" id="clock" aria-label="Huidige tijd in Nederland"></time>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidenav" aria-label="Hoofdmenu">
+      <ul>
+        <li><a class="sidenav__link is-active" href="#" aria-current="page">Grafiek</a></li>
+        <li><span class="sidenav__link is-disabled">Backtest <small>fase 2</small></span></li>
+        <li><span class="sidenav__link is-disabled">Vergelijken <small>fase 3</small></span></li>
+        <li><span class="sidenav__link is-disabled">Paper trading <small>fase 4</small></span></li>
+        <li><span class="sidenav__link is-disabled">Risico &amp; alerts <small>fase 5</small></span></li>
+      </ul>
+    </nav>
+
+    <main id="main" class="main">
+      <form class="panel toolbar" id="toolbar" autocomplete="off">
+        <div class="field">
+          <label for="symbol">Instrument</label>
+          <select id="symbol" name="symbol"></select>
+        </div>
+
+        <fieldset class="field">
+          <legend>Timeframe</legend>
+          <div class="segmented" id="timeframes" role="radiogroup"></div>
+        </fieldset>
+
+        <div class="field field--dates">
+          <div class="field__head">
+            <span class="field__label" id="rangeLabel">Periode</span>
+            <div class="quick-ranges" id="quickRanges" aria-label="Snelkeuze periode">
+              <button type="button" data-days="7">1W</button>
+              <button type="button" data-days="30">1M</button>
+              <button type="button" data-days="91">3M</button>
+              <button type="button" data-days="365">1J</button>
+              <button type="button" data-days="1095">3J</button>
+            </div>
+          </div>
+          <div class="dates" role="group" aria-labelledby="rangeLabel">
+            <label class="visually-hidden" for="start">Van</label>
+            <input type="date" id="start" name="start" required>
+            <span class="dates__sep" aria-hidden="true">–</span>
+            <label class="visually-hidden" for="end">Tot en met</label>
+            <input type="date" id="end" name="end" required>
+          </div>
+        </div>
+
+        <button class="btn btn--primary" type="submit" id="loadBtn">Data laden</button>
+
+        <div class="progress" id="progress" hidden>
+          <div class="progress__track"><div class="progress__bar" id="progressBar"></div></div>
+          <p class="progress__text" id="progressText" aria-live="polite"></p>
+        </div>
+      </form>
+
+      <section class="panel chart-panel" aria-labelledby="chartTitle">
+        <header class="chart-panel__head">
+          <div>
+            <h1 class="chart-panel__title" id="chartTitle">—</h1>
+            <p class="chart-panel__subtitle" id="chartSubtitle"></p>
+          </div>
+          <div class="price-now">
+            <span class="price-now__value" id="lastPrice">—</span>
+            <span class="change" id="rangeChange" hidden></span>
+          </div>
+        </header>
+
+        <div class="chart-wrap">
+          <div class="legend" id="legend" aria-hidden="true"></div>
+          <div class="chart" id="chart"></div>
+
+          <div class="chart-state" id="chartState">
+            <p class="chart-state__title">Nog geen data</p>
+            <p class="chart-state__text">Kies een instrument en een periode en klik op <strong>Data laden</strong>.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="stats" aria-label="Kerngetallen van de geladen periode">
+        <div class="stat"><span class="stat__label">Hoogste koers</span><span class="stat__value" id="statHigh">—</span></div>
+        <div class="stat"><span class="stat__label">Laagste koers</span><span class="stat__value" id="statLow">—</span></div>
+        <div class="stat"><span class="stat__label">Bereik</span><span class="stat__value" id="statRange">—</span></div>
+        <div class="stat"><span class="stat__label">Aantal candles</span><span class="stat__value" id="statCount">—</span></div>
+      </section>
+
+      <p class="source-note" id="sourceNote"></p>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3L12 3zm0 6v4m0 3v.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <p>Het dashboard handelt alleen zolang deze Mac aan staat en het Terminal-venster met <code>start.sh</code> open is.</p>
+  </footer>
+
+  <div class="toast" id="toast" role="alert" hidden></div>
+
+  <script src="vendor/lightweight-charts.standalone.production.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
