@@ -161,6 +161,7 @@ code {
 .main {
   flex: 1;
   min-width: 0;
+  max-width: 1760px;  /* on very wide screens, keep tables and tiles readable */
   padding: var(--space-3);
   display: flex;
   flex-direction: column;
