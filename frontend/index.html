@@ -33,7 +33,9 @@
       <ul>
         <li><a class="sidenav__link is-active" href="#grafiek" data-view="grafiek" aria-current="page">Grafiek</a></li>
         <li><a class="sidenav__link" href="#backtest" data-view="backtest">Backtest</a></li>
-        <li><span class="sidenav__link is-disabled">Vergelijken <small>fase 3</small></span></li>
+        <li><a class="sidenav__link" href="#optimaliseren" data-view="optimaliseren">Optimaliseren</a></li>
+        <li><a class="sidenav__link" href="#vergelijken" data-view="vergelijken">Vergelijken</a></li>
+        <li><a class="sidenav__link" href="#historie" data-view="historie">Historie</a></li>
         <li><span class="sidenav__link is-disabled">Paper trading <small>fase 4</small></span></li>
         <li><span class="sidenav__link is-disabled">Risico &amp; alerts <small>fase 5</small></span></li>
       </ul>
@@ -172,6 +174,15 @@
               <p class="hint">Schatting voor een BlackBull Standard-account. Spread en slippage mogen niet 0 zijn.</p>
             </fieldset>
 
+            <fieldset class="group">
+              <legend>Controle</legend>
+              <div class="field">
+                <label for="btOos">Out-of-sample (%)</label>
+                <input type="number" id="btOos" min="0" max="50" step="5" inputmode="numeric" aria-describedby="btOosHelp">
+                <p class="hint" id="btOosHelp">Het laatste deel van de periode wordt los getest. Zo zie je of de uitkomst ook geldt voor data die de strategie "niet kende". 0 = uit.</p>
+              </div>
+            </fieldset>
+
             <button class="btn btn--primary btn--block" type="submit" id="btRun">Backtest starten</button>
             <p class="hint">Gebruikt het instrument, de timeframe en de periode hierboven. Een signaal op candle N wordt pas uitgevoerd op de opening van candle N+1.</p>
           </form>
@@ -186,11 +197,26 @@
               <header class="bt-head">
                 <h1 class="bt-head__title" id="btTitle"></h1>
                 <p class="bt-head__subtitle" id="btSubtitle"></p>
+                <p class="bt-head__meta" id="btRunInfo"></p>
               </header>
 
               <div class="notice" id="btWarnings" role="status" hidden></div>
 
               <section class="kpis" id="btKpis" aria-label="Resultaten"></section>
+
+              <section class="panel" id="btOosPanel" hidden>
+                <header class="panel__head">
+                  <h2 class="panel__title">Training versus vergrendeld deel</h2>
+                  <p class="panel__hint" id="btOosHint"></p>
+                </header>
+                <div class="table-wrap table-wrap--plain">
+                  <table class="table table--compare" id="btOosTable">
+                    <thead><tr><th scope="col"></th><th scope="col" class="num">In-sample (training)</th><th scope="col" class="num">Out-of-sample (vergrendeld)</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+                <div class="notice notice--inset" id="btOosNotes" hidden></div>
+              </section>
 
               <section class="panel">
                 <header class="panel__head">
@@ -252,6 +278,240 @@
             </div>
           </div>
         </div>
+      </div>
+      <!-- ========== Optimaliseren ========== -->
+      <div class="view" id="view-optimaliseren" hidden>
+        <div class="bt-layout">
+          <form class="panel bt-settings" id="opForm" autocomplete="off" novalidate>
+            <div class="field">
+              <label for="opStrategy">Strategie</label>
+              <select id="opStrategy"></select>
+            </div>
+
+            <fieldset class="group">
+              <legend>Te variëren</legend>
+              <div class="axis" data-axis="0">
+                <div class="field field--wide">
+                  <label for="opAxis0">Parameter 1</label>
+                  <select id="opAxis0" class="axis__param"></select>
+                </div>
+                <div class="axis__range">
+                  <div class="field"><label for="opAxis0From">Van</label><input type="number" id="opAxis0From" class="axis__from" step="any"></div>
+                  <div class="field"><label for="opAxis0To">Tot</label><input type="number" id="opAxis0To" class="axis__to" step="any"></div>
+                  <div class="field"><label for="opAxis0Step">Stap</label><input type="number" id="opAxis0Step" class="axis__step" step="any"></div>
+                </div>
+              </div>
+              <div class="axis" data-axis="1">
+                <div class="field field--wide">
+                  <label for="opAxis1">Parameter 2 (optioneel)</label>
+                  <select id="opAxis1" class="axis__param"></select>
+                </div>
+                <div class="axis__range">
+                  <div class="field"><label for="opAxis1From">Van</label><input type="number" id="opAxis1From" class="axis__from" step="any"></div>
+                  <div class="field"><label for="opAxis1To">Tot</label><input type="number" id="opAxis1To" class="axis__to" step="any"></div>
+                  <div class="field"><label for="opAxis1Step">Stap</label><input type="number" id="opAxis1Step" class="axis__step" step="any"></div>
+                </div>
+              </div>
+              <p class="hint" id="opCount"></p>
+            </fieldset>
+
+            <fieldset class="group">
+              <legend>Vaste waarden</legend>
+              <div class="group__fields" id="opFixed"></div>
+            </fieldset>
+
+            <fieldset class="group">
+              <legend>Beoordeling</legend>
+              <div class="group__fields">
+                <div class="field field--wide">
+                  <label for="opTarget">Optimaliseren op</label>
+                  <select id="opTarget">
+                    <option value="sharpe">Sharpe (rendement ÷ schommeling)</option>
+                    <option value="return_dd">Rendement ÷ max. drawdown</option>
+                    <option value="total_return_pct">Totaal rendement</option>
+                    <option value="profit_factor">Profit factor</option>
+                    <option value="expectancy_r">Expectancy (R)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="opMinTrades">Min. trades</label>
+                  <input type="number" id="opMinTrades" min="1" max="1000" step="1" value="20" inputmode="numeric">
+                </div>
+                <div class="field">
+                  <label for="opOos">Vergrendeld (%)</label>
+                  <input type="number" id="opOos" min="10" max="50" step="5" value="30" inputmode="numeric">
+                </div>
+                <div class="field field--wide">
+                  <label for="opFolds">Walk-forward</label>
+                  <select id="opFolds">
+                    <option value="1">Uit: één keer trainen, één keer testen</option>
+                    <option value="2">2 vensters</option>
+                    <option value="3">3 vensters</option>
+                    <option value="4">4 vensters</option>
+                    <option value="6">6 vensters</option>
+                  </select>
+                </div>
+              </div>
+              <p class="hint">De optimizer ziet het vergrendelde deel nooit. Pas als de beste instellingen gekozen zijn, worden die één keer op dat deel getest. Kapitaal, risico en kosten komen van de Backtest-pagina.</p>
+            </fieldset>
+
+            <div class="btn-row">
+              <button class="btn btn--primary btn--block" type="submit" id="opRun">Optimalisatie starten</button>
+              <button class="btn btn--ghost" type="button" id="opStop" hidden>Stoppen</button>
+            </div>
+          </form>
+
+          <div class="bt-results">
+            <div class="panel bt-empty" id="opEmpty">
+              <p class="bt-empty__title">Nog geen optimalisatie</p>
+              <p class="bt-empty__text">Kies een strategie, één of twee parameters met een bereik, en klik op <strong>Optimalisatie starten</strong>. Je krijgt een heatmap van alle combinaties en een eerlijke test op data die de optimizer niet heeft gezien.</p>
+            </div>
+
+            <div class="bt-output" id="opOutput" hidden>
+              <header class="bt-head">
+                <h1 class="bt-head__title" id="opTitle"></h1>
+                <p class="bt-head__subtitle" id="opSubtitle"></p>
+              </header>
+              <div class="notice" id="opWarnings" role="status" hidden></div>
+
+              <section class="verdict" id="opVerdict"></section>
+
+              <section class="panel">
+                <header class="panel__head">
+                  <h2 class="panel__title" id="opHeatTitle">Heatmap</h2>
+                  <p class="panel__hint" id="opHeatHint"></p>
+                </header>
+                <div class="heatmap-wrap" id="opHeatmap"></div>
+                <div class="heat-legend" id="opHeatLegend" aria-hidden="true"></div>
+              </section>
+
+              <section class="panel" id="opWfPanel" hidden>
+                <header class="panel__head">
+                  <h2 class="panel__title">Walk-forward</h2>
+                  <p class="panel__hint" id="opWfHint"></p>
+                </header>
+                <div class="table-wrap table-wrap--plain">
+                  <table class="table" id="opWfTable">
+                    <thead><tr><th scope="col">Venster</th><th scope="col">Getraind vanaf</th><th scope="col">Getest</th><th scope="col">Gekozen instellingen</th><th scope="col" class="num">Trades</th><th scope="col" class="num">Rendement (test)</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== Vergelijken ========== -->
+      <div class="view" id="view-vergelijken" hidden>
+        <section class="panel cmp-actions">
+          <div>
+            <h1 class="panel__title">Strategieën vergelijken</h1>
+            <p class="panel__hint">Draai alle strategieën op het instrument, de timeframe en de periode hierboven, met dezelfde kosten en hetzelfde risico. Of kies zelf runs in <a class="link" href="#historie">Historie</a>.</p>
+          </div>
+          <button class="btn btn--primary" type="button" id="cmpRunAll">Alle strategieën draaien</button>
+        </section>
+
+        <div class="panel bt-empty" id="cmpEmpty">
+          <p class="bt-empty__title">Nog niets om te vergelijken</p>
+          <p class="bt-empty__text">Klik op <strong>Alle strategieën draaien</strong>, of selecteer twee of meer runs in Historie.</p>
+        </div>
+
+        <div class="bt-output" id="cmpOutput" hidden>
+          <div class="notice" id="cmpWarnings" role="status" hidden></div>
+
+          <section class="panel">
+            <header class="panel__head">
+              <h2 class="panel__title">Rendement in procenten</h2>
+              <p class="panel__hint">Iedere lijn start op 0%. Zo zijn runs met een ander startkapitaal toch te vergelijken.</p>
+            </header>
+            <ul class="series-legend" id="cmpLegend"></ul>
+            <div class="chart-wrap chart-wrap--equity">
+              <div class="chart" id="cmpChart"></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <header class="panel__head">
+              <h2 class="panel__title">Kerncijfers naast elkaar</h2>
+              <p class="panel__hint">De beste waarde per regel is vet gedrukt.</p>
+            </header>
+            <div class="table-wrap table-wrap--plain">
+              <table class="table table--compare" id="cmpTable"><thead></thead><tbody></tbody></table>
+            </div>
+          </section>
+
+          <div id="cmpMatchings"></div>
+        </div>
+      </div>
+
+      <!-- ========== Historie ========== -->
+      <div class="view" id="view-historie" hidden>
+        <details class="panel import" id="tvImport">
+          <summary>TradingView-backtest importeren</summary>
+          <form class="import__form" id="tvForm" autocomplete="off" novalidate>
+            <p class="hint">Exporteer in TradingView via <strong>Strategy Tester → List of trades → exporteren (CSV)</strong>. Uitleg staat in <code>docs/PINE_OMZETTEN.md</code>.</p>
+            <div class="import__fields">
+              <div class="field field--wide">
+                <label for="tvFile">CSV-bestand</label>
+                <input type="file" id="tvFile" accept=".csv,text/csv">
+              </div>
+              <div class="field">
+                <label for="tvSymbol">Instrument</label>
+                <select id="tvSymbol"></select>
+              </div>
+              <div class="field">
+                <label for="tvTimeframe">Timeframe</label>
+                <select id="tvTimeframe"></select>
+              </div>
+              <div class="field">
+                <label for="tvTimezone">Tijdzone van je TradingView-grafiek</label>
+                <select id="tvTimezone">
+                  <option value="Europe/Amsterdam">Amsterdam (NL)</option>
+                  <option value="UTC">UTC</option>
+                  <option value="Europe/London">Londen</option>
+                  <option value="America/New_York">New York</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="tvCapital">Startkapitaal in TradingView</label>
+                <input type="number" id="tvCapital" min="1" step="any" placeholder="automatisch" inputmode="decimal">
+              </div>
+            </div>
+            <button class="btn btn--primary" type="submit" id="tvRun">Importeren</button>
+          </form>
+        </details>
+
+        <section class="panel">
+          <header class="panel__head">
+            <h1 class="panel__title" id="hiTitle">Opgeslagen runs</h1>
+            <div class="selection-bar">
+              <span class="panel__hint" id="hiSelected">Selecteer runs om te vergelijken.</span>
+              <button class="btn btn--small" type="button" id="hiCompare" disabled>Vergelijk selectie</button>
+            </div>
+          </header>
+          <div class="table-wrap">
+            <table class="table table--runs" id="hiTable">
+              <thead>
+                <tr>
+                  <th scope="col"><span class="visually-hidden">Selecteren</span></th>
+                  <th scope="col">#</th>
+                  <th scope="col">Gemaakt</th>
+                  <th scope="col">Strategie</th>
+                  <th scope="col">Markt</th>
+                  <th scope="col">Periode</th>
+                  <th scope="col" class="num">Rendement</th>
+                  <th scope="col" class="num">Max. DD</th>
+                  <th scope="col" class="num">Sharpe</th>
+                  <th scope="col" class="num">Trades</th>
+                  <th scope="col">Notitie</th>
+                  <th scope="col"><span class="visually-hidden">Acties</span></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </main>
   </div>

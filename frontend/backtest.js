@@ -2,8 +2,8 @@
 
 import {
   $, LWC, state, api, postJson, showToast, loadPref, savePref, instrumentInfo, timeframeInfo,
-  fmtNumber, fmtPrice, fmtPct, fmtEur, fmtEurSigned, fmtTime, fmtTimeShort, formatDay, cssVar,
-  baseChartOptions, createCandleChart, ensureData, setProgress,
+  fmtNumber, fmtPrice, fmtPct, fmtMoney, fmtMoneySigned, fmtTime, fmtTimeShort, formatDay, cssVar,
+  baseChartOptions, createCandleChart, ensureData, setProgress, renderNotice, fmtParams, el,
 } from './common.js';
 
 const PREFS_KEY = 'td.backtest.v1';
@@ -42,6 +42,12 @@ export async function initBacktest({ selection, setBusy }) {
     tradesBody: document.querySelector('#btTrades tbody'),
     logTitle: $('btLogTitle'),
     logBody: document.querySelector('#btLog tbody'),
+    oosPct: $('btOos'),
+    runInfo: $('btRunInfo'),
+    oos: $('btOosPanel'),
+    oosHint: $('btOosHint'),
+    oosBody: document.querySelector('#btOosTable tbody'),
+    oosNotes: $('btOosNotes'),
   };
 
   const strategies = await api('/api/strategies');
@@ -50,11 +56,16 @@ export async function initBacktest({ selection, setBusy }) {
   let runToken = 0;
   let charts = null;
   let lastResult = null;
+  let currency = 'EUR';
+  const money = (v) => fmtMoney(v, currency);
+  const moneySigned = (v) => fmtMoneySigned(v, currency);
 
   /* ---------- Settings form ---------- */
 
   for (const s of strategies) els.strategy.append(new Option(`${s.label} (${s.version})`, s.key));
+  const DEFAULT_STRATEGY = 'sma_cross@v1';
   if (strategies.some((s) => s.key === prefs.strategy)) els.strategy.value = prefs.strategy;
+  else if (strategies.some((s) => s.key === DEFAULT_STRATEGY)) els.strategy.value = DEFAULT_STRATEGY;
 
   const currentStrategy = () => strategies.find((s) => s.key === els.strategy.value);
 
@@ -125,6 +136,7 @@ export async function initBacktest({ selection, setBusy }) {
     els.capital.value = prefs.capital ?? state.config.account.starting_capital;
     els.risk.value = prefs.risk_pct ?? state.config.account.risk_per_trade_pct;
     els.sizing.value = prefs.sizing_mode ?? 'fractional';
+    els.oosPct.value = prefs.oos_pct ?? 30;
     applyCosts(state.symbol);
   }
 
@@ -142,8 +154,12 @@ export async function initBacktest({ selection, setBusy }) {
     return new Error(message);
   }
 
+  function clearInvalid() {
+    els.form.querySelectorAll('[aria-invalid]').forEach((node) => node.removeAttribute('aria-invalid'));
+  }
+
   function readForm() {
-    els.form.querySelectorAll('[aria-invalid]').forEach((el) => el.removeAttribute('aria-invalid'));
+    clearInvalid();
     const strat = currentStrategy();
     const params = {};
     for (const input of els.paramFields.querySelectorAll('[data-param]')) {
@@ -155,6 +171,14 @@ export async function initBacktest({ selection, setBusy }) {
     return {
       strategy: strat.key,
       params,
+      oos_pct: readNumber(els.oosPct, 'Out-of-sample', { min: 0, max: 50 }),
+      ...readCommon(),
+    };
+  }
+
+  /* Capital, risk and costs: shared with the optimizer and the comparison. */
+  function readCommon() {
+    return {
       capital: readNumber(els.capital, 'Startkapitaal', { min: 10, max: 100000000 }),
       risk_pct: readNumber(els.risk, 'Risico per trade', { min: 0.1, max: 10 }),
       sizing_mode: els.sizing.value,
@@ -166,8 +190,11 @@ export async function initBacktest({ selection, setBusy }) {
   }
 
   function rememberForm(form) {
-    prefs.strategy = form.strategy;
-    prefs.params = { ...(prefs.params || {}), [form.strategy]: form.params };
+    if (form.strategy) {
+      prefs.strategy = form.strategy;
+      prefs.params = { ...(prefs.params || {}), [form.strategy]: form.params };
+      prefs.oos_pct = form.oos_pct;
+    }
     prefs.capital = form.capital;
     prefs.risk_pct = form.risk_pct;
     prefs.sizing_mode = form.sizing_mode;
@@ -241,7 +268,7 @@ export async function initBacktest({ selection, setBusy }) {
       lineWidth: 2,
       topColor: 'rgba(212, 173, 92, 0.22)',
       bottomColor: 'rgba(212, 173, 92, 0.02)',
-      priceFormat: { type: 'custom', formatter: fmtEur, minMove: 0.01 },
+      priceFormat: { type: 'custom', formatter: (v) => money(v), minMove: 0.01 },
       priceLineVisible: false,
     });
     const drawdown = equityChart.addSeries(LWC.AreaSeries, {
@@ -279,7 +306,7 @@ export async function initBacktest({ selection, setBusy }) {
     if (!point) return;
     const parts = [
       ['', fmtTime(point.time, lastResult.settings.timeframe)],
-      ['Vermogen', fmtEur(point.equity)],
+      ['Vermogen', money(point.equity)],
       ['Drawdown', `${fmtNumber(point.drawdown, 2)}%`],
     ];
     for (const [label, value] of parts) {
@@ -297,38 +324,72 @@ export async function initBacktest({ selection, setBusy }) {
     const s = result.settings;
     const m = result.metrics;
     const inst = instrumentInfo(s.symbol);
+    const imported = s.strategy === 'tradingview';
+    currency = s.currency || 'EUR';
 
     els.empty.hidden = true;
     els.output.hidden = false;
 
-    els.title.textContent = `${s.strategy_label} ${s.version} · ${s.symbol} ${s.timeframe}`;
-    const paramText = Object.entries(s.params)
-      .map(([k, v]) => `${k} ${typeof v === 'boolean' ? (v ? 'ja' : 'nee') : fmtNumber(v, Number.isInteger(v) ? 0 : 2)}`)
-      .join(', ');
-    els.subtitle.textContent =
-      `${formatDay(s.start)} – ${formatDay(s.end)} · start ${fmtEur(s.capital)} · ${fmtNumber(s.risk_pct, 1)}% risico per trade · `
-      + `${s.sizing_mode === 'realistic' ? 'hele lots' : 'exacte lotgrootte'} · hefboom 1:${s.leverage} · ${paramText}`;
+    if (imported) {
+      els.title.textContent = `${s.strategy_label} · ${s.symbol} ${s.timeframe}`;
+      els.subtitle.textContent = `${formatDay(s.start)} – ${formatDay(s.end)} · start ${money(s.capital)}`
+        + `${s.capital_inferred ? ' (afgeleid uit het bestand)' : ''} · bedragen in ${currency}`;
+    } else {
+      els.title.textContent = `${s.strategy_label} ${s.version} · ${s.symbol} ${s.timeframe}`;
+      els.subtitle.textContent =
+        `${formatDay(s.start)} – ${formatDay(s.end)} · start ${money(s.capital)} · ${fmtNumber(s.risk_pct, 1)}% risico per trade · `
+        + `${s.sizing_mode === 'realistic' ? 'hele lots' : 'exacte lotgrootte'} · hefboom 1:${s.leverage} · ${fmtParams(s.params)}`;
+    }
+    renderRunInfo(result);
 
-    renderWarnings(result.warnings);
+    renderNotice(els.warnings, result.warnings);
     renderKpis(m, s);
+    renderOos(result.oos);
     renderEquity(result, s);
     renderPrice(result, candles, inst);
     renderTrades(result.trades, inst, s.timeframe);
     renderLog(result.events);
   }
 
-  function renderWarnings(warnings) {
-    els.warnings.innerHTML = '';
-    els.warnings.hidden = !warnings.length;
-    for (const text of warnings) {
-      const p = document.createElement('p');
-      p.className = 'notice__item';
-      p.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3L12 3zm0 6v4m0 3v.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      const span = document.createElement('span');
-      span.textContent = text;
-      p.append(span);
-      els.warnings.append(p);
+  function renderRunInfo(result) {
+    els.runInfo.innerHTML = '';
+    if (!result.run_id) return;
+    const when = result.created_at ? ` op ${fmtTimeShort(result.created_at)}` : '';
+    els.runInfo.append(`Opgeslagen als run #${result.run_id}${when}. `);
+    const link = el('a', 'link', 'Bekijk alle runs in Historie');
+    link.href = '#historie';
+    els.runInfo.append(link);
+    if (result.strategy_changed) {
+      els.runInfo.append(el('span', 'badge badge--warn', 'strategiebestand sindsdien gewijzigd'));
     }
+  }
+
+  function renderOos(oos) {
+    els.oos.hidden = !oos;
+    if (!oos) return;
+    els.oosBody.innerHTML = '';
+    if (oos.error) {
+      els.oosHint.textContent = oos.error;
+      renderNotice(els.oosNotes, []);
+      return;
+    }
+    els.oosHint.textContent = `Laatste ${fmtNumber(oos.pct, 0)}% van de periode apart gehouden, vanaf ${fmtTime(oos.split_ts)}. `
+      + 'Beide delen starten met hetzelfde kapitaal.';
+    const rows = [
+      ['Rendement', (m) => fmtPct(m.total_return_pct)],
+      ['Max. drawdown', (m) => `−${fmtNumber(m.max_drawdown_pct, 2)}%`],
+      ['Sharpe', (m) => (m.sharpe === null ? '—' : fmtNumber(m.sharpe, 2))],
+      ['Winrate', (m) => (m.winrate_pct === null ? '—' : `${fmtNumber(m.winrate_pct, 1)}%`)],
+      ['Profit factor', (m) => (m.profit_factor === null ? (m.no_losing_trades ? '∞' : '—') : fmtNumber(m.profit_factor, 2))],
+      ['Expectancy', (m) => (m.expectancy_r === null ? '—' : `${fmtNumber(m.expectancy_r, 2)} R`)],
+      ['Trades', (m) => String(m.trades)],
+    ];
+    for (const [label, fmt] of rows) {
+      const tr = el('tr');
+      tr.append(el('th', '', label), el('td', 'num', fmt(oos.in_sample)), el('td', 'num', fmt(oos.out_of_sample)));
+      els.oosBody.append(tr);
+    }
+    renderNotice(els.oosNotes, oos.notes);
   }
 
   function renderKpis(m, s) {
@@ -341,7 +402,7 @@ export async function initBacktest({ selection, setBusy }) {
     const items = [
       {
         label: 'Totaal rendement', value: `${arrow(m.total_return_pct)}${fmtPct(m.total_return_pct)}`, tone: tone(m.total_return_pct),
-        sub: `${fmtEur(s.capital)} → ${fmtEur(m.final_equity)}`, hero: true,
+        sub: `${money(s.capital)} → ${money(m.final_equity)}`, hero: true,
         tip: 'Hoeveel het startkapitaal is gegroeid of gekrompen, na alle kosten.',
       },
       {
@@ -362,9 +423,9 @@ export async function initBacktest({ selection, setBusy }) {
         tip: 'Aantal afgesloten trades. Onder de 30 zijn de cijfers niet betrouwbaar.', warn: m.trades < 30,
       },
       {
-        label: 'Gem. trade', value: m.avg_trade === null ? dash : fmtEurSigned(m.avg_trade), tone: tone(m.avg_trade),
-        sub: m.avg_win !== null || m.avg_loss !== null ? `winst ${m.avg_win === null ? dash : fmtEur(m.avg_win)} · verlies ${m.avg_loss === null ? dash : fmtEur(Math.abs(m.avg_loss))}` : '',
-        tip: 'Gemiddeld resultaat per trade in euro, na kosten.',
+        label: 'Gem. trade', value: m.avg_trade === null ? dash : moneySigned(m.avg_trade), tone: tone(m.avg_trade),
+        sub: m.avg_win !== null || m.avg_loss !== null ? `winst ${m.avg_win === null ? dash : money(m.avg_win)} · verlies ${m.avg_loss === null ? dash : money(Math.abs(m.avg_loss))}` : '',
+        tip: 'Gemiddeld resultaat per trade, na kosten.',
       },
       {
         label: 'Expectancy', value: m.expectancy_r === null ? dash : `${m.expectancy_r >= 0 ? '+' : '−'}${fmtNumber(Math.abs(m.expectancy_r), 2)} R`,
@@ -372,14 +433,15 @@ export async function initBacktest({ selection, setBusy }) {
         tip: 'Gemiddeld resultaat per trade uitgedrukt in R: 1 R is het bedrag dat je riskeerde tot de stop-loss. +0,3 R betekent gemiddeld 30% van je risico verdiend per trade.',
       },
       {
-        label: 'Kosten totaal', value: fmtEur(m.costs_total), sub: `${fmtNumber((m.costs_total / s.capital) * 100, 1)}% van startkapitaal`,
+        label: 'Kosten totaal', value: money(m.costs_total),
+        sub: m.costs_total === null ? 'niet bekend' : `${fmtNumber((m.costs_total / s.capital) * 100, 1)}% van startkapitaal`,
         tip: 'Spread, slippage, commissie en financiering samen.',
       },
       {
         label: 'Koers in periode', value: m.buy_hold_pct === null ? dash : fmtPct(m.buy_hold_pct), sub: 'ter vergelijking',
         tip: 'Hoeveel de koers zelf steeg of daalde in deze periode (kopen en vasthouden, zonder hefboom).',
       },
-      { label: 'Tijd in de markt', value: `${fmtNumber(m.exposure_pct, 0)}%`, sub: 'met open positie', tip: 'Percentage van de tijd dat er een positie openstond.' },
+      { label: 'Tijd in de markt', value: m.exposure_pct === null ? dash : `${fmtNumber(m.exposure_pct, 0)}%`, sub: 'met open positie', tip: 'Percentage van de tijd dat er een positie openstond.' },
     ];
 
     els.kpis.innerHTML = '';
@@ -411,7 +473,7 @@ export async function initBacktest({ selection, setBusy }) {
       axisLabelVisible: true, title: 'start',
     });
     c.equityChart.timeScale().fitContent();
-    els.equityHint.textContent = `In euro, na alle kosten. Gestippelde lijn = startkapitaal (${fmtEur(s.capital)}).`;
+    els.equityHint.textContent = `In ${currency === 'EUR' ? 'euro' : currency}, na alle kosten. Gestippelde lijn = startkapitaal (${money(s.capital)}).`;
     showEquityLegend(null);
   }
 
@@ -460,11 +522,11 @@ export async function initBacktest({ selection, setBusy }) {
         [fmtPrice(t.entry_price, inst.digits), 'num'],
         [fmtTimeShort(t.exit_ts), ''],
         [fmtPrice(t.exit_price, inst.digits), 'num'],
-        [fmtNumber(t.lots, Math.abs(t.lots * 100 - Math.round(t.lots * 100)) > 1e-6 ? 4 : 2), 'num'],
+        [t.lots === null ? '—' : fmtNumber(t.lots, Math.abs(t.lots * 100 - Math.round(t.lots * 100)) > 1e-6 ? 4 : 2), 'num'],
         [t.exit_reason, ''],
-        [fmtEur(t.costs_total), 'num'],
-        [`${t.r_multiple >= 0 ? '+' : '−'}${fmtNumber(Math.abs(t.r_multiple), 2)}`, 'num'],
-        [fmtEurSigned(t.pnl), `num ${t.pnl >= 0 ? 'is-up' : 'is-down'}`],
+        [money(t.costs_total), 'num'],
+        [t.r_multiple === null ? '—' : `${t.r_multiple >= 0 ? '+' : '−'}${fmtNumber(Math.abs(t.r_multiple), 2)}`, 'num'],
+        [moneySigned(t.pnl), `num ${t.pnl >= 0 ? 'is-up' : 'is-down'}`],
       ];
       for (const [text, cls] of cells) {
         const td = document.createElement('td');
@@ -525,10 +587,59 @@ export async function initBacktest({ selection, setBusy }) {
 
   /* ---------- Hooks for the toolbar ---------- */
 
+  /* Open a saved run (from Historie). */
+  async function showRun(runId) {
+    const token = ++runToken;
+    setBusy(true);
+    els.output.classList.add('is-loading');
+    try {
+      const result = await api(`/api/runs/${runId}`);
+      const s = result.settings;
+      const sel = { symbol: s.symbol, timeframe: s.timeframe, start: s.start, end: s.end };
+      await ensureData(sel, () => token === runToken);
+      const candles = await api(`/api/candles?${new URLSearchParams(sel)}`);
+      if (token !== runToken) return;
+      render(result, candles.candles);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      if (token === runToken) showToast(err.message);
+    } finally {
+      if (token === runToken) {
+        setBusy(false);
+        els.output.classList.remove('is-loading');
+      }
+    }
+  }
+
+  /* Put a strategy with given parameters in the form (e.g. the optimizer's best result). */
+  function applyStrategy(key, params) {
+    els.strategy.value = key;
+    prefs.params = { ...(prefs.params || {}), [key]: params };
+    renderParams();
+  }
+
+  function common() {
+    try {
+      const values = readCommon();
+      rememberForm(values);
+      return values;
+    } catch (err) {
+      showToast(`${err.message} (instelling op de Backtest-pagina)`);
+      return null;
+    }
+  }
+
   return {
     run,
-    onShow() {
+    showRun,
+    applyStrategy,
+    common,
+    strategies,
+    savedParams: (key) => (prefs.params && prefs.params[key]) || {},
+    onShow(params) {
       if (costsSymbol !== state.symbol) applyCosts(state.symbol);
+      const runId = params && params.get('run');
+      if (runId && String(lastResult?.run_id) !== runId) showRun(runId);
     },
     onSelectionChange() {
       if (costsSymbol !== state.symbol) {

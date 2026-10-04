@@ -80,6 +80,38 @@ export function showToast(message, kind = 'error') {
   toastTimer = setTimeout(() => { el.hidden = true; }, kind === 'info' ? 4000 : 8000);
 }
 
+/* ---------- Inline warning list (never a pop-up) ---------- */
+
+const WARNING_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3L12 3zm0 6v4m0 3v.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+export function renderNotice(container, warnings) {
+  container.innerHTML = '';
+  container.hidden = !warnings || !warnings.length;
+  for (const text of warnings || []) {
+    const p = document.createElement('p');
+    p.className = 'notice__item';
+    p.innerHTML = WARNING_ICON;
+    const span = document.createElement('span');
+    span.textContent = text;
+    p.append(span);
+    container.append(p);
+  }
+}
+
+/* Categorical colours for comparing runs: fixed order, validated for colour blindness on the dark surface. */
+export const SERIES_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
+
+export function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = text;
+  return node;
+}
+
+export const fmtParams = (params) => Object.entries(params || {})
+  .map(([k, v]) => `${k} ${typeof v === 'boolean' ? (v ? 'ja' : 'nee') : fmtNumber(v, Number.isInteger(v) ? 0 : 2)}`)
+  .join(', ');
+
 /* ---------- Dates (inputs hold calendar days, interpreted as UTC by the server) ---------- */
 
 export function isoDay(date) {
@@ -128,9 +160,25 @@ export function currentDigits() {
 export const fmtPrice = (value, digits = currentDigits()) => fmtNumber(value, digits);
 export const fmtPct = (value, digits = 2) => `${value >= 0 ? '+' : '−'}${fmtNumber(Math.abs(value), digits)}%`;
 
-const eurFormat = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' });
-export const fmtEur = (value) => eurFormat.format(value);
-export const fmtEurSigned = (value) => `${value >= 0 ? '+' : '−'}${eurFormat.format(Math.abs(value))}`;
+const moneyFormats = new Map();
+export function fmtMoney(value, currency = 'EUR') {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  if (!moneyFormats.has(currency)) {
+    let format;
+    try {
+      format = new Intl.NumberFormat('nl-NL', { style: 'currency', currency });
+    } catch {
+      format = { format: (v) => `${fmtNumber(v, 2)} ${currency}` };
+    }
+    moneyFormats.set(currency, format);
+  }
+  return moneyFormats.get(currency).format(value);
+}
+export const fmtMoneySigned = (value, currency = 'EUR') => (
+  value === null || value === undefined ? '—' : `${value >= 0 ? '+' : '−'}${fmtMoney(Math.abs(value), currency)}`
+);
+export const fmtEur = (value) => fmtMoney(value, 'EUR');
+export const fmtEurSigned = (value) => fmtMoneySigned(value, 'EUR');
 
 /* ---------- Time formatting (always Dutch time) ---------- */
 

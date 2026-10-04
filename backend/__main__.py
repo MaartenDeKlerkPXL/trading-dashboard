@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import logging.handlers
+import multiprocessing
 import socket
 import sys
 import threading
@@ -56,6 +57,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Trading Dashboard")
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser")
     args = parser.parse_args()
+    # Worker processes for optimizations are started fresh on every platform (the macOS default).
+    multiprocessing.set_start_method("spawn", force=True)
 
     try:
         settings = load_settings()

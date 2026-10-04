@@ -32,6 +32,27 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (source, symbol, level, chunk_start)
     ) WITHOUT ROWID;
     """,
+    """
+    CREATE TABLE runs (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at INTEGER NOT NULL,
+        source     TEXT NOT NULL,              -- 'engine' | 'tradingview'
+        name       TEXT NOT NULL DEFAULT '',
+        note       TEXT NOT NULL DEFAULT '',
+        symbol     TEXT,
+        timeframe  TEXT,
+        start      TEXT,
+        end        TEXT,
+        strategy   TEXT,                       -- 'name@version'
+        version    TEXT,
+        code_hash  TEXT NOT NULL DEFAULT '',   -- fingerprint of the strategy file at run time
+        settings   TEXT NOT NULL,              -- JSON
+        metrics    TEXT NOT NULL,              -- JSON
+        result     BLOB NOT NULL,              -- zlib-compressed JSON: trades, equity, events, ...
+        group_id   TEXT
+    );
+    CREATE INDEX runs_group ON runs (group_id);
+    """,
 ]
 
 

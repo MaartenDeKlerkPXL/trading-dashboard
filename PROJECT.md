@@ -1,7 +1,7 @@
 # Projectkeuzes
 
 Dit bestand legt vast wat we hebben afgesproken, zodat keuzes niet ongemerkt veranderen.
-Laatst bijgewerkt: fase 2.
+Laatst bijgewerkt: fase 3.
 
 ## Afspraken
 
@@ -45,6 +45,29 @@ Laatst bijgewerkt: fase 2.
 - **Sharpe en Sortino.** Berekend uit dagrendementen, op jaarbasis met 252 handelsdagen (crypto: 365).
 - **Betrouwbaarheid.** Bij minder dan 30 trades staat er een waarschuwing.
 
+## Strategieën, optimaliseren en vergelijken (fase 3)
+
+- **Strategieën.** Elk bestand in `backend/strategies/` is één strategie met een vaste versie. Er zijn er nu vier:
+  - SMA-crossover;
+  - RSI-omkeer (omgezet uit Pine);
+  - Donchian-uitbraak;
+  - Bollinger-terugkeer.
+
+  Een nieuwe strategie maak je vanuit `_template.py`.
+- **Wijzigingen worden gemarkeerd.** Elke run bewaart een vingerafdruk van het strategiebestand. Is het bestand later aangepast, dan staat er in Historie "bestand gewijzigd". In fase 4 wordt dit een harde regel: een draaiende versie mag niet meer veranderen.
+- **Elke run wordt bewaard** met parameters, kosten, versie en alle trades. Je kunt runs openen, er een notitie bij zetten, ze verwijderen en ze vergelijken (maximaal 8 tegelijk).
+- **Out-of-sample.** Een backtest kan het laatste deel van de periode los testen (standaard 30%). Beide delen starten met hetzelfde kapitaal.
+- **Optimaliseren.**
+  - De optimizer varieert één of twee parameters, met maximaal 400 combinaties.
+  - Hij test alleen op het trainingsdeel. De beste combinatie wordt daarna één keer getest op het vergrendelde deel.
+  - Je krijgt een waarschuwing als:
+    - er veel varianten zijn getest;
+    - de beste waarde aan de rand van het bereik ligt;
+    - de buren in de heatmap veel slechter scoren (dan is de uitkomst waarschijnlijk toeval).
+  - Met walk-forward herhaalt hij dit over 2 tot 6 opeenvolgende vensters.
+- **TradingView-import.** Je kunt de CSV van "List of trades" importeren. Trades worden gekoppeld als ze dezelfde richting hebben en hooguit één candle na elkaar openen. Uitleg staat in `docs/PINE_OMZETTEN.md`.
+- **Pine-omzetting.** Plak de Pine-code in de chat. Wat niet 1-op-1 kan, staat bovenin het bestand onder "PINE DIFFERENCES".
+
 ## Nog open (vragen we op het juiste moment)
 
 - **Reconciliatie-meldingen (fase 5):** wil je een e-mail als je eigen administratie en die van de broker niet overeenkomen? Uitleg volgt in fase 5.
@@ -53,7 +76,7 @@ Laatst bijgewerkt: fase 2.
 
 1. ✅ Projectopzet, data ophalen en tonen op een grafiek
 2. ✅ Backtest-engine met één voorbeeldstrategie en metrics
-3. Strategieën vergelijken, runs opslaan, CSV-import uit TradingView, Pine-omzetting
+3. ✅ Strategieën vergelijken, runs opslaan, CSV-import uit TradingView, Pine-omzetting, optimaliseren
 4. Paper trading-loop, logging, vergelijking live vs. backtest, evaluatiekaarten
 5. Risk engine, kill switch, e-mailmeldingen, reconciliatie
 6. Live-executor: standaard uit, eerst alleen testen op een demo-account

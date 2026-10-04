@@ -51,6 +51,11 @@ class History(Sequence):
             raise IndexError("bar index outside the visible history")
         return self._bars[index]
 
+    @property
+    def series_id(self) -> int:
+        """Identity of the underlying bar list (lets indicators keep incremental state safely)."""
+        return id(self._bars)
+
     def closes(self, n: int) -> list[float]:
         """The last n closing prices, oldest first."""
         return [b.close for b in self._bars[max(0, self._end - n):self._end]]

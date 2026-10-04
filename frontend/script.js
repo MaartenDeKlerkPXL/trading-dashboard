@@ -7,6 +7,9 @@ import {
   createCandleChart, ensureData, hideProgress,
 } from './common.js';
 import { initBacktest } from './backtest.js';
+import { initOptimize } from './optimize.js';
+import { initCompare } from './compare.js';
+import { initHistory } from './history.js';
 
 const PREFS_KEY = 'td.chart.v1';
 
@@ -38,7 +41,11 @@ const els = {
 const views = {
   grafiek: { el: $('view-chart'), button: 'Data laden' },
   backtest: { el: $('view-backtest'), button: 'Backtest starten' },
+  optimaliseren: { el: $('view-optimaliseren'), button: 'Optimalisatie starten' },
+  vergelijken: { el: $('view-vergelijken'), button: 'Alle strategieën draaien' },
+  historie: { el: $('view-historie'), button: '' },
 };
+const modules = {};
 
 let currentView = 'grafiek';
 let chartDirty = true;     // the selection changed since the chart was last loaded
@@ -84,7 +91,7 @@ function selectionChanged() {
   savePrefs();
   chartDirty = true;
   if (currentView === 'grafiek') loadChart();
-  else backtest.onSelectionChange();
+  else modules[currentView]?.onSelectionChange?.();
 }
 
 function buildToolbar(prefs) {
@@ -169,7 +176,7 @@ function buildToolbar(prefs) {
     }
     savePrefs();
     if (currentView === 'grafiek') loadChart();
-    else backtest.run();
+    else modules[currentView]?.run?.();
   });
 }
 
@@ -189,7 +196,9 @@ export function setBusy(busy) {
 
 /* ---------- Navigation ---------- */
 
-function showView(name) {
+function showView(hash) {
+  const [rawName, query = ''] = hash.split('?');
+  let name = rawName;
   if (!views[name]) name = 'grafiek';
   currentView = name;
   document.body.dataset.view = name;
@@ -202,7 +211,14 @@ function showView(name) {
   });
   if (!els.loadBtn.disabled) els.loadBtn.textContent = views[name].button;
   if (name === 'grafiek' && chartDirty) loadChart();
-  if (name === 'backtest') backtest.onShow();
+  modules[name]?.onShow?.(new URLSearchParams(query));
+}
+
+/* Navigate to a view; extra parameters end up in the address (e.g. #vergelijken?runs=1,2). */
+export function navigate(name, params) {
+  const hash = params ? `${name}?${new URLSearchParams(params)}` : name;
+  if (location.hash.slice(1) === hash) showView(hash);
+  else location.hash = hash;
 }
 
 /* ---------- Chart view ---------- */
@@ -372,6 +388,10 @@ async function init() {
   priceChart.setDigits(currentDigits());
 
   backtest = await initBacktest({ selection, setBusy });
+  modules.backtest = backtest;
+  modules.optimaliseren = await initOptimize({ selection, setBusy, backtest, navigate });
+  modules.vergelijken = initCompare({ selection, setBusy, backtest, navigate });
+  modules.historie = initHistory({ backtest, navigate });
 
   window.addEventListener('hashchange', () => showView(location.hash.slice(1)));
   showView(location.hash.slice(1) || 'grafiek');

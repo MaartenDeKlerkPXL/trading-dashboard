@@ -33,9 +33,18 @@ def describe(cls: type[Strategy]) -> dict:
         "version": cls.version,
         "label": cls.label,
         "description": cls.description,
+        "code_hash": code_hash(cls),
         "params": [
             {"name": p.name, "label": p.label, "type": p.kind, "default": p.default,
              "min": p.min, "max": p.max, "step": p.step, "help": p.help}
             for p in cls.params
         ],
     }
+
+
+def code_hash(cls: type[Strategy]) -> str:
+    """Short fingerprint of the strategy's source file, to detect silent edits of a version."""
+    import hashlib
+
+    source = inspect.getsource(inspect.getmodule(cls))
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()[:12]

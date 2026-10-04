@@ -3,7 +3,7 @@
 Een lokaal trading dashboard voor backtesten, paper trading en (later) live orders.
 Alles draait op je eigen Mac. Het dashboard open je in de browser op <http://localhost:8000>.
 
-> **Status: fase 2.** Je kunt koersdata bekijken en strategieën backtesten.
+> **Status: fase 3.** Je kunt koersdata bekijken en strategieën backtesten, optimaliseren en vergelijken, en TradingView-backtests importeren.
 > Er worden nog geen orders geplaatst, ook geen nep-orders.
 
 ---
@@ -77,7 +77,7 @@ cd ~/Documents/GitHub/trading-dashboard
 ./test.sh
 ```
 
-Het is gelukt als de laatste regel iets zegt als `44 passed`.
+Het is gelukt als de laatste regel iets zegt als `64 passed`.
 
 De tests gebruiken geen internet en plaatsen nooit orders.
 
@@ -105,7 +105,8 @@ Draaide het dashboard al? Stop het dan eerst met `Ctrl + C`, haal de update op m
 | `backend/` | Python-server (FastAPI): data, opslag in SQLite, backtest-engine, API |
 | `backend/strategies/` | De strategieën: elk bestand is één strategie met een versie (bijv. `sma_cross_v1.py`) |
 | `backend/execution/` | De "executors": backtest nu, paper en live later |
-| `frontend/` | Het dashboard: `index.html`, `style.css` en de scripts (`script.js`, `common.js`, `backtest.js`) |
+| `frontend/` | Het dashboard: `index.html`, `style.css` en één script per pagina (`script.js`, `backtest.js`, `optimize.js`, `compare.js`, `history.js`, gedeeld: `common.js`) |
+| `docs/` | Uitleg, zoals het omzetten van TradingView-strategieën |
 | `tests/` | Automatische tests |
 | `data/` | Je lokale database en logbestanden (niet op GitHub) |
 | `PROJECT.md` | Gemaakte keuzes en de planning per fase |
