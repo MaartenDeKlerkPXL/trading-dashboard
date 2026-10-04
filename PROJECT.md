@@ -1,7 +1,7 @@
 # Projectkeuzes
 
 Dit bestand legt vast wat we hebben afgesproken, zodat keuzes niet ongemerkt veranderen.
-Laatst bijgewerkt: fase 1.
+Laatst bijgewerkt: fase 2.
 
 ## Afspraken
 
@@ -28,15 +28,31 @@ Laatst bijgewerkt: fase 1.
 - **Later:** data van BlackBull zelf via cTrader. De koersen en spreads komen dan precies overeen met die van je broker.
 - **Bekend verschil:** Dukascopy-dagcandles lopen van 00:00 tot 00:00 UTC. BlackBull gebruikt servertijd (GMT+2/+3). Daardoor wijken D1- en H4-candles licht af van wat je in TradingView ziet. Met de cTrader-data verdwijnt dit verschil.
 
+## Backtest-regels (fase 2)
+
+- **Geen lookahead.** Een strategie ziet alleen afgesloten candles. Een signaal op candle N wordt uitgevoerd op de opening van candle N+1.
+- **Prijzen.** De data zijn bid-prijzen. Kopen gebeurt op de ask (bid + spread), verkopen op de bid. Elke marktorder betaalt bovendien slippage.
+- **Stop-loss is verplicht.** De positiegrootte wordt berekend op de afstand tot de stop-loss, en in live trading staat de stop-loss bij de broker. Een signaal zonder stop-loss wordt niet uitgevoerd en komt in het logboek.
+- **Stop-loss en take-profit in dezelfde candle.** Het programma kan niet zien welke als eerste werd geraakt en neemt daarom aan dat het de stop-loss was (voorzichtig).
+- **Koersgat.** Opent de koers voorbij de stop-loss, dan wordt de positie gesloten tegen de openingskoers. Dat is slechter dan de stop-loss, net als in het echt.
+- **Kosten.** Spread, slippage, commissie per lot en financiering (standaard 6% per jaar per nacht dat een positie openstaat). Spread en slippage mogen nooit 0 zijn.
+- **Omrekenen naar EUR.** Gebeurt met de EURUSD- of EURJPY-slotkoers van de vorige dag.
+- **Lotgrootte.** Er zijn twee standen:
+  - *Ideaal*: exacte grootte, voor zuivere percentages. Dit is de standaard in het dashboard.
+  - *Realistisch*: hele lots vanaf 0,01. Is zelfs 0,01 lot te riskant, dan wordt de trade overgeslagen en gelogd.
+
+  Met € 1.000 en 2% risico (€ 20) valt goud op H1 vaak onder die minimumgrens. Voor paper trading kiezen we daarom straks bewust een stand.
+- **Sharpe en Sortino.** Berekend uit dagrendementen, op jaarbasis met 252 handelsdagen (crypto: 365).
+- **Betrouwbaarheid.** Bij minder dan 30 trades staat er een waarschuwing.
+
 ## Nog open (vragen we op het juiste moment)
 
 - **Reconciliatie-meldingen (fase 5):** wil je een e-mail als je eigen administratie en die van de broker niet overeenkomen? Uitleg volgt in fase 5.
-- **Minimale lotgrootte (fase 2):** met € 1.000 en 2% risico (€ 20) is de kleinste goudpositie (0,01 lot) soms al te groot als de stop-loss ver weg staat. Daarvoor kiezen we een regel: de trade overslaan, of loggen dat het risico hoger is.
 
 ## Fases
 
 1. ✅ Projectopzet, data ophalen en tonen op een grafiek
-2. Backtest-engine met één voorbeeldstrategie en metrics
+2. ✅ Backtest-engine met één voorbeeldstrategie en metrics
 3. Strategieën vergelijken, runs opslaan, CSV-import uit TradingView, Pine-omzetting
 4. Paper trading-loop, logging, vergelijking live vs. backtest, evaluatiekaarten
 5. Risk engine, kill switch, e-mailmeldingen, reconciliatie

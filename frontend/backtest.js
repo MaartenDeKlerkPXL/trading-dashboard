@@ -1,0 +1,540 @@
+/* Backtest view: strategy settings, running a backtest and showing its results. */
+
+import {
+  $, LWC, state, api, postJson, showToast, loadPref, savePref, instrumentInfo, timeframeInfo,
+  fmtNumber, fmtPrice, fmtPct, fmtEur, fmtEurSigned, fmtTime, fmtTimeShort, formatDay, cssVar,
+  baseChartOptions, createCandleChart, ensureData, setProgress,
+} from './common.js';
+
+const PREFS_KEY = 'td.backtest.v1';
+const MAX_TABLE_ROWS = 1000;
+const MAX_LOG_ROWS = 2000;
+
+const EVENT_LABELS = {
+  signal: 'Signaal', order: 'Order', fill: 'Uitvoering', exit: 'Gesloten',
+  skip: 'Overgeslagen', warning: 'Let op', info: 'Info',
+};
+
+export async function initBacktest({ selection, setBusy }) {
+  const els = {
+    form: $('btForm'),
+    strategy: $('btStrategy'),
+    description: $('btDescription'),
+    paramFields: $('btParamFields'),
+    capital: $('btCapital'),
+    risk: $('btRisk'),
+    sizing: $('btSizing'),
+    spread: $('btSpread'),
+    slippage: $('btSlippage'),
+    commission: $('btCommission'),
+    financing: $('btFinancing'),
+    resetCosts: $('btResetCosts'),
+    run: $('btRun'),
+    empty: $('btEmpty'),
+    output: $('btOutput'),
+    title: $('btTitle'),
+    subtitle: $('btSubtitle'),
+    warnings: $('btWarnings'),
+    kpis: $('btKpis'),
+    equityHint: $('btEquityHint'),
+    equityLegend: $('btEquityLegend'),
+    tradesTitle: $('btTradesTitle'),
+    tradesBody: document.querySelector('#btTrades tbody'),
+    logTitle: $('btLogTitle'),
+    logBody: document.querySelector('#btLog tbody'),
+  };
+
+  const strategies = await api('/api/strategies');
+  const prefs = loadPref(PREFS_KEY, {});
+  let costsSymbol = null;
+  let runToken = 0;
+  let charts = null;
+  let lastResult = null;
+
+  /* ---------- Settings form ---------- */
+
+  for (const s of strategies) els.strategy.append(new Option(`${s.label} (${s.version})`, s.key));
+  if (strategies.some((s) => s.key === prefs.strategy)) els.strategy.value = prefs.strategy;
+
+  const currentStrategy = () => strategies.find((s) => s.key === els.strategy.value);
+
+  function renderParams() {
+    const strat = currentStrategy();
+    els.description.textContent = strat.description;
+    const saved = (prefs.params && prefs.params[strat.key]) || {};
+    els.paramFields.innerHTML = '';
+    for (const p of strat.params) {
+      const id = `btParam-${p.name}`;
+      const field = document.createElement('div');
+      field.className = p.type === 'bool' ? 'field field--check field--wide' : 'field';
+      const input = document.createElement('input');
+      input.id = id;
+      input.dataset.param = p.name;
+      input.dataset.type = p.type;
+      const label = document.createElement('label');
+      label.htmlFor = id;
+      label.textContent = p.label;
+      const value = saved[p.name] ?? p.default;
+      if (p.type === 'bool') {
+        input.type = 'checkbox';
+        input.checked = Boolean(value);
+        field.append(input, label);
+      } else {
+        input.type = 'number';
+        input.inputMode = 'decimal';
+        if (p.min !== null) input.min = p.min;
+        if (p.max !== null) input.max = p.max;
+        input.step = p.step ?? 'any';
+        input.value = value;
+        field.append(label, input);
+      }
+      if (p.help) {
+        const help = document.createElement('p');
+        help.className = 'hint';
+        help.textContent = p.help;
+        field.append(help);
+      }
+      els.paramFields.append(field);
+    }
+  }
+
+  function setCostDefaults(symbol) {
+    const inst = instrumentInfo(symbol);
+    els.spread.value = inst.costs.spread;
+    els.slippage.value = inst.costs.slippage;
+    els.commission.value = inst.costs.commission_per_lot;
+    els.financing.value = inst.costs.financing_pct;
+    document.querySelectorAll('[data-unit-for="price"]').forEach((el) => { el.textContent = `(${inst.quote_currency})`; });
+    costsSymbol = symbol;
+  }
+
+  /* Costs last used for this instrument, or its defaults. */
+  function applyCosts(symbol) {
+    setCostDefaults(symbol);
+    const saved = prefs.costs && prefs.costs[symbol];
+    if (saved) {
+      els.spread.value = saved.spread;
+      els.slippage.value = saved.slippage;
+      els.commission.value = saved.commission_per_lot;
+      els.financing.value = saved.financing_pct;
+    }
+  }
+
+  function restoreForm() {
+    renderParams();
+    els.capital.value = prefs.capital ?? state.config.account.starting_capital;
+    els.risk.value = prefs.risk_pct ?? state.config.account.risk_per_trade_pct;
+    els.sizing.value = prefs.sizing_mode ?? 'fractional';
+    applyCosts(state.symbol);
+  }
+
+  function readNumber(input, label, { min = -Infinity, max = Infinity, positive = false } = {}) {
+    const value = Number(input.value.replace(',', '.'));
+    if (input.value.trim() === '' || !Number.isFinite(value)) throw fieldError(input, `Vul een getal in bij "${label}".`);
+    if (positive && !(value > 0)) throw fieldError(input, `"${label}" moet groter dan 0 zijn: zonder kosten is een backtest te rooskleurig.`);
+    if (value < min || value > max) throw fieldError(input, `"${label}" moet tussen ${min} en ${max} liggen.`);
+    return value;
+  }
+
+  function fieldError(input, message) {
+    input.setAttribute('aria-invalid', 'true');
+    input.focus();
+    return new Error(message);
+  }
+
+  function readForm() {
+    els.form.querySelectorAll('[aria-invalid]').forEach((el) => el.removeAttribute('aria-invalid'));
+    const strat = currentStrategy();
+    const params = {};
+    for (const input of els.paramFields.querySelectorAll('[data-param]')) {
+      const p = strat.params.find((x) => x.name === input.dataset.param);
+      params[p.name] = p.type === 'bool'
+        ? input.checked
+        : readNumber(input, p.label, { min: p.min ?? -Infinity, max: p.max ?? Infinity });
+    }
+    return {
+      strategy: strat.key,
+      params,
+      capital: readNumber(els.capital, 'Startkapitaal', { min: 10, max: 100000000 }),
+      risk_pct: readNumber(els.risk, 'Risico per trade', { min: 0.1, max: 10 }),
+      sizing_mode: els.sizing.value,
+      spread: readNumber(els.spread, 'Spread', { positive: true }),
+      slippage: readNumber(els.slippage, 'Slippage', { positive: true }),
+      commission_per_lot: readNumber(els.commission, 'Commissie', { min: 0 }),
+      financing_pct: readNumber(els.financing, 'Financiering', { min: 0, max: 100 }),
+    };
+  }
+
+  function rememberForm(form) {
+    prefs.strategy = form.strategy;
+    prefs.params = { ...(prefs.params || {}), [form.strategy]: form.params };
+    prefs.capital = form.capital;
+    prefs.risk_pct = form.risk_pct;
+    prefs.sizing_mode = form.sizing_mode;
+    prefs.costs = {
+      ...(prefs.costs || {}),
+      [state.symbol]: {
+        spread: form.spread, slippage: form.slippage,
+        commission_per_lot: form.commission_per_lot, financing_pct: form.financing_pct,
+      },
+    };
+    savePref(PREFS_KEY, prefs);
+  }
+
+  els.strategy.addEventListener('change', renderParams);
+  els.resetCosts.addEventListener('click', () => {
+    setCostDefaults(state.symbol);
+    showToast(`Kosten teruggezet naar de standaardwaarden voor ${state.symbol}.`, 'info');
+  });
+  els.form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    run();
+  });
+
+  restoreForm();
+
+  /* ---------- Running ---------- */
+
+  async function run() {
+    let form;
+    try {
+      form = readForm();
+    } catch (err) {
+      showToast(err.message);
+      return;
+    }
+    const token = ++runToken;
+    const sel = selection();
+    rememberForm(form);
+    setBusy(true);
+    els.run.disabled = true;
+    els.run.textContent = 'Bezig…';
+    els.output.classList.add('is-loading');
+    try {
+      const ok = await ensureData(sel, () => token === runToken);
+      if (!ok) return;
+      setProgress(1, 1, '', 'Backtest berekenen…');
+      const result = await postJson('/api/backtest', { ...sel, ...form });
+      const candles = await api(`/api/candles?${new URLSearchParams(sel)}`);
+      if (token !== runToken) return;
+      render(result, candles.candles);
+    } catch (err) {
+      if (token === runToken) showToast(err.message);
+    } finally {
+      if (token === runToken) {
+        setBusy(false);
+        els.run.disabled = false;
+        els.run.textContent = 'Backtest starten';
+        els.output.classList.remove('is-loading');
+      }
+    }
+  }
+
+  /* ---------- Results ---------- */
+
+  function ensureCharts() {
+    if (charts) return charts;
+    const equityChart = LWC.createChart($('btEquityChart'), baseChartOptions());
+    const accent = cssVar('--accent');
+    const equity = equityChart.addSeries(LWC.AreaSeries, {
+      lineColor: accent,
+      lineWidth: 2,
+      topColor: 'rgba(212, 173, 92, 0.22)',
+      bottomColor: 'rgba(212, 173, 92, 0.02)',
+      priceFormat: { type: 'custom', formatter: fmtEur, minMove: 0.01 },
+      priceLineVisible: false,
+    });
+    const drawdown = equityChart.addSeries(LWC.AreaSeries, {
+      lineColor: cssVar('--down'),
+      lineWidth: 1,
+      topColor: 'rgba(220, 100, 80, 0.05)',
+      bottomColor: 'rgba(220, 100, 80, 0.30)',
+      invertFilledArea: true,
+      priceFormat: { type: 'custom', formatter: (v) => `${fmtNumber(v, 1)}%`, minMove: 0.01 },
+      priceLineVisible: false,
+      lastValueVisible: false,
+    }, 1);
+    equityChart.panes()[1].setHeight(90);
+
+    equityChart.subscribeCrosshairMove((param) => {
+      if (param.time === undefined) { showEquityLegend(null); return; }
+      const e = param.seriesData.get(equity);
+      const d = param.seriesData.get(drawdown);
+      showEquityLegend(e && { time: param.time, equity: e.value, drawdown: d ? d.value : 0 });
+    });
+
+    const price = createCandleChart($('btPriceChart'), { volume: false });
+    const markers = LWC.createSeriesMarkers(price.candles, []);
+    charts = { equityChart, equity, drawdown, price, markers, startLine: null };
+    return charts;
+  }
+
+  function showEquityLegend(point) {
+    if (!point && lastResult) {
+      const last = lastResult.equity[lastResult.equity.length - 1];
+      const dd = lastResult.drawdown[lastResult.drawdown.length - 1];
+      point = last && { time: last.time, equity: last.value, drawdown: dd ? dd.value : 0 };
+    }
+    els.equityLegend.innerHTML = '';
+    if (!point) return;
+    const parts = [
+      ['', fmtTime(point.time, lastResult.settings.timeframe)],
+      ['Vermogen', fmtEur(point.equity)],
+      ['Drawdown', `${fmtNumber(point.drawdown, 2)}%`],
+    ];
+    for (const [label, value] of parts) {
+      const span = document.createElement('span');
+      if (label) span.append(`${label} `);
+      const b = document.createElement('b');
+      b.textContent = value;
+      span.append(b);
+      els.equityLegend.append(span);
+    }
+  }
+
+  function render(result, candles) {
+    lastResult = result;
+    const s = result.settings;
+    const m = result.metrics;
+    const inst = instrumentInfo(s.symbol);
+
+    els.empty.hidden = true;
+    els.output.hidden = false;
+
+    els.title.textContent = `${s.strategy_label} ${s.version} · ${s.symbol} ${s.timeframe}`;
+    const paramText = Object.entries(s.params)
+      .map(([k, v]) => `${k} ${typeof v === 'boolean' ? (v ? 'ja' : 'nee') : fmtNumber(v, Number.isInteger(v) ? 0 : 2)}`)
+      .join(', ');
+    els.subtitle.textContent =
+      `${formatDay(s.start)} – ${formatDay(s.end)} · start ${fmtEur(s.capital)} · ${fmtNumber(s.risk_pct, 1)}% risico per trade · `
+      + `${s.sizing_mode === 'realistic' ? 'hele lots' : 'exacte lotgrootte'} · hefboom 1:${s.leverage} · ${paramText}`;
+
+    renderWarnings(result.warnings);
+    renderKpis(m, s);
+    renderEquity(result, s);
+    renderPrice(result, candles, inst);
+    renderTrades(result.trades, inst, s.timeframe);
+    renderLog(result.events);
+  }
+
+  function renderWarnings(warnings) {
+    els.warnings.innerHTML = '';
+    els.warnings.hidden = !warnings.length;
+    for (const text of warnings) {
+      const p = document.createElement('p');
+      p.className = 'notice__item';
+      p.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3L12 3zm0 6v4m0 3v.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const span = document.createElement('span');
+      span.textContent = text;
+      p.append(span);
+      els.warnings.append(p);
+    }
+  }
+
+  function renderKpis(m, s) {
+    const dash = '—';
+    const num = (v, d = 2) => (v === null || v === undefined ? dash : fmtNumber(v, d));
+    const tone = (v) => (v === null || v === undefined || v === 0 ? '' : v > 0 ? 'is-up' : 'is-down');
+    const arrow = (v) => (v > 0 ? '▲ ' : v < 0 ? '▼ ' : '');
+    const pf = m.profit_factor !== null ? fmtNumber(m.profit_factor, 2) : (m.no_losing_trades ? '∞' : dash);
+
+    const items = [
+      {
+        label: 'Totaal rendement', value: `${arrow(m.total_return_pct)}${fmtPct(m.total_return_pct)}`, tone: tone(m.total_return_pct),
+        sub: `${fmtEur(s.capital)} → ${fmtEur(m.final_equity)}`, hero: true,
+        tip: 'Hoeveel het startkapitaal is gegroeid of gekrompen, na alle kosten.',
+      },
+      {
+        label: 'Max. drawdown', value: m.max_drawdown_pct ? `−${fmtNumber(m.max_drawdown_pct, 2)}%` : '0%',
+        sub: 'grootste daling vanaf top', tip: 'De grootste tussentijdse daling van het vermogen, vanaf het hoogste punt tot het laagste punt daarna.',
+      },
+      { label: 'Sharpe', value: num(m.sharpe), sub: 'rendement ÷ schommeling', tip: 'Gemiddeld dagrendement gedeeld door de schommeling ervan, op jaarbasis. Boven 1 is goed, boven 2 is uitzonderlijk.' },
+      { label: 'Sortino', value: num(m.sortino), sub: 'alleen dalingen als risico', tip: 'Als Sharpe, maar alleen negatieve schommelingen tellen als risico.' },
+      {
+        label: 'Winrate', value: m.winrate_pct === null ? dash : `${fmtNumber(m.winrate_pct, 1)}%`,
+        sub: m.trades ? `${Math.round((m.winrate_pct / 100) * m.trades)} van ${m.trades} trades winstgevend` : 'geen trades',
+        tip: 'Percentage trades met winst na kosten.',
+      },
+      { label: 'Profit factor', value: pf, sub: 'bruto winst ÷ bruto verlies', tip: 'Totale winst van winnende trades gedeeld door het totale verlies van verliezende trades. Boven 1 = winstgevend.' },
+      {
+        label: 'Aantal trades', value: String(m.trades),
+        sub: m.skipped_signals ? `${m.skipped_signals} overgeslagen` : `${num(m.avg_bars_held, 1)} candles gemiddeld open`,
+        tip: 'Aantal afgesloten trades. Onder de 30 zijn de cijfers niet betrouwbaar.', warn: m.trades < 30,
+      },
+      {
+        label: 'Gem. trade', value: m.avg_trade === null ? dash : fmtEurSigned(m.avg_trade), tone: tone(m.avg_trade),
+        sub: m.avg_win !== null || m.avg_loss !== null ? `winst ${m.avg_win === null ? dash : fmtEur(m.avg_win)} · verlies ${m.avg_loss === null ? dash : fmtEur(Math.abs(m.avg_loss))}` : '',
+        tip: 'Gemiddeld resultaat per trade in euro, na kosten.',
+      },
+      {
+        label: 'Expectancy', value: m.expectancy_r === null ? dash : `${m.expectancy_r >= 0 ? '+' : '−'}${fmtNumber(Math.abs(m.expectancy_r), 2)} R`,
+        tone: tone(m.expectancy_r), sub: 'per trade, in risico-eenheden',
+        tip: 'Gemiddeld resultaat per trade uitgedrukt in R: 1 R is het bedrag dat je riskeerde tot de stop-loss. +0,3 R betekent gemiddeld 30% van je risico verdiend per trade.',
+      },
+      {
+        label: 'Kosten totaal', value: fmtEur(m.costs_total), sub: `${fmtNumber((m.costs_total / s.capital) * 100, 1)}% van startkapitaal`,
+        tip: 'Spread, slippage, commissie en financiering samen.',
+      },
+      {
+        label: 'Koers in periode', value: m.buy_hold_pct === null ? dash : fmtPct(m.buy_hold_pct), sub: 'ter vergelijking',
+        tip: 'Hoeveel de koers zelf steeg of daalde in deze periode (kopen en vasthouden, zonder hefboom).',
+      },
+      { label: 'Tijd in de markt', value: `${fmtNumber(m.exposure_pct, 0)}%`, sub: 'met open positie', tip: 'Percentage van de tijd dat er een positie openstond.' },
+    ];
+
+    els.kpis.innerHTML = '';
+    for (const item of items) {
+      const div = document.createElement('div');
+      div.className = `kpi${item.hero ? ' kpi--hero' : ''}${item.warn ? ' kpi--warn' : ''}`;
+      div.title = item.tip;
+      const label = document.createElement('span');
+      label.className = 'kpi__label';
+      label.textContent = item.label;
+      const value = document.createElement('span');
+      value.className = `kpi__value ${item.tone || ''}`;
+      value.textContent = item.value;
+      const sub = document.createElement('span');
+      sub.className = 'kpi__sub';
+      sub.textContent = item.sub || '';
+      div.append(label, value, sub);
+      els.kpis.append(div);
+    }
+  }
+
+  function renderEquity(result, s) {
+    const c = ensureCharts();
+    c.equity.setData(result.equity);
+    c.drawdown.setData(result.drawdown);
+    if (c.startLine) c.equity.removePriceLine(c.startLine);
+    c.startLine = c.equity.createPriceLine({
+      price: s.capital, color: '#6b7285', lineWidth: 1, lineStyle: LWC.LineStyle.Dashed,
+      axisLabelVisible: true, title: 'start',
+    });
+    c.equityChart.timeScale().fitContent();
+    els.equityHint.textContent = `In euro, na alle kosten. Gestippelde lijn = startkapitaal (${fmtEur(s.capital)}).`;
+    showEquityLegend(null);
+  }
+
+  function renderPrice(result, candles, inst) {
+    const c = ensureCharts();
+    c.price.setDigits(inst.digits);
+    c.price.setData(candles);
+    const up = cssVar('--up');
+    const down = cssVar('--down');
+    const markers = [];
+    for (const t of result.trades) {
+      const long = t.side === 'long';
+      markers.push({
+        time: t.entry_ts, position: long ? 'belowBar' : 'aboveBar', shape: long ? 'arrowUp' : 'arrowDown',
+        color: long ? up : down, id: `in-${t.id}`,
+      });
+      markers.push({
+        time: t.exit_ts, position: long ? 'aboveBar' : 'belowBar', shape: 'circle',
+        color: '#9aa2b4', size: 0.6, id: `out-${t.id}`,
+      });
+    }
+    markers.sort((a, b) => a.time - b.time);
+    c.markers.setMarkers(markers);
+    c.price.chart.timeScale().fitContent();
+  }
+
+  function renderTrades(trades, inst, timeframe) {
+    els.tradesTitle.textContent = `Trades (${trades.length})`;
+    els.tradesBody.innerHTML = '';
+    if (!trades.length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="11" class="table__empty">Geen trades in deze periode. Kijk in het logboek waarom signalen zijn overgeslagen.</td>';
+      els.tradesBody.append(tr);
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    for (const t of trades.slice(0, MAX_TABLE_ROWS)) {
+      const tr = document.createElement('tr');
+      tr.tabIndex = 0;
+      tr.dataset.from = t.entry_ts;
+      tr.dataset.to = t.exit_ts;
+      const cells = [
+        [String(t.id), 'num-muted'],
+        [t.side === 'long' ? '▲ Long' : '▼ Short', t.side === 'long' ? 'is-up' : 'is-down'],
+        [fmtTimeShort(t.entry_ts), ''],
+        [fmtPrice(t.entry_price, inst.digits), 'num'],
+        [fmtTimeShort(t.exit_ts), ''],
+        [fmtPrice(t.exit_price, inst.digits), 'num'],
+        [fmtNumber(t.lots, Math.abs(t.lots * 100 - Math.round(t.lots * 100)) > 1e-6 ? 4 : 2), 'num'],
+        [t.exit_reason, ''],
+        [fmtEur(t.costs_total), 'num'],
+        [`${t.r_multiple >= 0 ? '+' : '−'}${fmtNumber(Math.abs(t.r_multiple), 2)}`, 'num'],
+        [fmtEurSigned(t.pnl), `num ${t.pnl >= 0 ? 'is-up' : 'is-down'}`],
+      ];
+      for (const [text, cls] of cells) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        if (cls) td.className = cls;
+        tr.append(td);
+      }
+      tr.title = `${t.entry_reason || ''}${t.stop_loss ? ` · stop-loss ${fmtPrice(t.stop_loss, inst.digits)}` : ''}`
+        + `${t.take_profit ? ` · take-profit ${fmtPrice(t.take_profit, inst.digits)}` : ''}`;
+      fragment.append(tr);
+    }
+    els.tradesBody.append(fragment);
+    if (trades.length > MAX_TABLE_ROWS) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td colspan="11" class="table__empty">Alleen de eerste ${MAX_TABLE_ROWS} trades worden getoond.</td>`;
+      els.tradesBody.append(tr);
+    }
+
+    const tfSeconds = timeframeInfo(timeframe).seconds;
+    const focusTrade = (row) => {
+      if (!row || !row.dataset.from) return;
+      const pad = tfSeconds * 30;
+      charts.price.chart.timeScale().setVisibleRange({ from: Number(row.dataset.from) - pad, to: Number(row.dataset.to) + pad });
+      $('btPriceChart').closest('section').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    els.tradesBody.onclick = (event) => focusTrade(event.target.closest('tr'));
+    els.tradesBody.onkeydown = (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        focusTrade(event.target.closest('tr'));
+      }
+    };
+  }
+
+  function renderLog(events) {
+    els.logTitle.textContent = `Logboek (${events.length} regels)`;
+    els.logBody.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+    for (const e of events.slice(0, MAX_LOG_ROWS)) {
+      const tr = document.createElement('tr');
+      tr.className = `log--${e.kind}`;
+      const cells = [fmtTimeShort(e.ts), EVENT_LABELS[e.kind] || e.kind, e.message];
+      cells.forEach((text, i) => {
+        const td = document.createElement('td');
+        td.textContent = text;
+        if (i === 1) td.className = 'log__kind';
+        tr.append(td);
+      });
+      fragment.append(tr);
+    }
+    els.logBody.append(fragment);
+    if (events.length > MAX_LOG_ROWS) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td colspan="3" class="table__empty">Alleen de eerste ${MAX_LOG_ROWS} regels worden getoond.</td>`;
+      els.logBody.append(tr);
+    }
+  }
+
+  /* ---------- Hooks for the toolbar ---------- */
+
+  return {
+    run,
+    onShow() {
+      if (costsSymbol !== state.symbol) applyCosts(state.symbol);
+    },
+    onSelectionChange() {
+      if (costsSymbol !== state.symbol) {
+        applyCosts(state.symbol);
+        showToast(`Kosten aangepast aan ${state.symbol}.`, 'info');
+      }
+    },
+  };
+}

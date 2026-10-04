@@ -28,6 +28,8 @@ def test_dashboard_files_served(client):
     assert r.status_code == 200 and "<title>" in r.text
     assert client.get("/script.js").status_code == 200
     assert client.get("/style.css").status_code == 200
+    assert client.get("/common.js").status_code == 200
+    assert client.get("/backtest.js").status_code == 200
 
 
 def test_validation_messages(client):
@@ -62,3 +64,56 @@ def test_live_mode_is_refused(tmp_path):
     cfg.write_text('[execution]\nmode = "paper"\n[data]\nnope = 1\n')
     with pytest.raises(ConfigError):
         load_settings(cfg)
+
+
+def _sync(client, body):
+    job = client.post("/api/data/sync", json=body).json()
+    for _ in range(200):
+        job = client.get(f"/api/data/jobs/{job['id']}").json()
+        if job["status"] != "running":
+            return job
+        time.sleep(0.02)
+    raise AssertionError("sync did not finish")
+
+
+def test_strategies_listed(client):
+    data = client.get("/api/strategies").json()
+    sma = next(s for s in data if s["key"] == "sma_cross@v1")
+    assert sma["version"] == "v1" and {p["name"] for p in sma["params"]} >= {"fast", "slow", "atr_stop"}
+
+
+def test_backtest_requires_data_first(client):
+    body = {"symbol": "XAUUSD", "timeframe": "H1", "start": "2024-03-01", "end": "2024-03-31",
+            "strategy": "sma_cross@v1"}
+    r = client.post("/api/backtest", json=body)
+    assert r.status_code == 409 and "Laad eerst" in r.json()["detail"]
+
+
+def test_backtest_end_to_end(client):
+    period = {"symbol": "XAUUSD", "timeframe": "H1", "start": "2024-01-01", "end": "2024-06-30"}
+    assert _sync(client, period)["status"] == "done"
+    body = {**period, "strategy": "sma_cross@v1", "params": {"fast": 10, "slow": 30},
+            "capital": 1000, "risk_pct": 2, "sizing_mode": "fractional"}
+    r = client.post("/api/backtest", json=body)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    m = data["metrics"]
+    for key in ("total_return_pct", "max_drawdown_pct", "sharpe", "sortino", "winrate_pct",
+                "profit_factor", "trades", "avg_trade", "expectancy_r"):
+        assert key in m
+    assert m["trades"] > 0 and data["equity"] and data["trades"]
+    assert data["settings"]["params"]["fast"] == 10
+    assert data["settings"]["costs"]["spread"] > 0
+    # Conversion data (EURUSD daily) was downloaded through the provider, so no fallback warning.
+    assert not any("vaste koers" in w for w in data["warnings"])
+
+
+def test_backtest_validation_errors(client):
+    period = {"symbol": "XAUUSD", "timeframe": "H1", "start": "2024-01-01", "end": "2024-01-31"}
+    _sync(client, period)
+    base = {**period, "strategy": "sma_cross@v1"}
+    assert client.post("/api/backtest", json={**base, "strategy": "nope@v1"}).status_code == 400
+    r = client.post("/api/backtest", json={**base, "params": {"fast": 60, "slow": 20}})
+    assert r.status_code == 400 and "korter" in r.json()["detail"]
+    r = client.post("/api/backtest", json={**base, "spread": 0})
+    assert r.status_code == 400 and "spread" in r.json()["detail"]

@@ -51,10 +51,10 @@ def synthetic(start: int, end: int, step: int, price: float = 2000.0, weekend_ga
         weekday = ((ts // 86400) + 3) % 7  # 0 = Monday (1970-01-01 was a Thursday)
         if not (weekend_gap and weekday >= 5):
             rnd = random.Random(ts)
-            o, c = round(mid(ts), 3), round(mid(ts + step), 3)
+            o, c = round(mid(ts), 5), round(mid(ts + step), 5)
             wick = price * 0.0004 * (step / 60) ** 0.5
-            h = round(max(o, c) + wick * rnd.random(), 3)
-            lo = round(min(o, c) - wick * rnd.random(), 3)
+            h = round(max(o, c) + wick * rnd.random(), 5)
+            lo = round(min(o, c) - wick * rnd.random(), 5)
             out.append(Candle(ts, o, h, lo, c, round(1 + 4 * rnd.random(), 2)))
         ts += step
     return out
@@ -78,4 +78,5 @@ class FakeProvider:
             raise ProviderError("boom")
         if chunk_start in self.missing:
             return None
-        return synthetic(chunk_start, next_chunk(chunk_start, level), LEVEL_SECONDS[level])
+        price = {"EURUSD": 1.16, "EURJPY": 172.0, "GBPUSD": 1.34, "USDJPY": 148.0}.get(instrument.symbol, 2000.0)
+        return synthetic(chunk_start, next_chunk(chunk_start, level), LEVEL_SECONDS[level], price=price)

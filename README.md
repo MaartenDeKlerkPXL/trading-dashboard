@@ -3,7 +3,7 @@
 Een lokaal trading dashboard voor backtesten, paper trading en (later) live orders.
 Alles draait op je eigen Mac. Het dashboard open je in de browser op <http://localhost:8000>.
 
-> **Status: fase 1.** Je kunt koersdata ophalen en bekijken op een grafiek.
+> **Status: fase 2.** Je kunt koersdata bekijken en strategieën backtesten.
 > Er worden nog geen orders geplaatst, ook geen nep-orders.
 
 ---
@@ -77,7 +77,7 @@ cd ~/Documents/GitHub/trading-dashboard
 ./test.sh
 ```
 
-Het is gelukt als de laatste regel iets zegt als `19 passed`.
+Het is gelukt als de laatste regel iets zegt als `44 passed`.
 
 De tests gebruiken geen internet en plaatsen nooit orders.
 
@@ -89,12 +89,23 @@ Alle instellingen staan in `config.toml`. Je kunt dat bestand openen met TextEdi
 
 API-sleutels komen later in een bestand `.env`. Kopieer daarvoor `.env.example` naar `.env`. Het bestand `.env` wordt nooit naar GitHub gestuurd.
 
+## Code bijwerken
+
+```
+cd ~/Documents/GitHub/trading-dashboard
+git pull
+```
+
+Draaide het dashboard al? Stop het dan eerst met `Ctrl + C`, haal de update op met `git pull` en start het opnieuw met `./start.sh`.
+
 ## Projectstructuur
 
 | Map / bestand | Inhoud |
 |---|---|
-| `backend/` | Python-server (FastAPI): data ophalen, opslag in SQLite, API |
-| `frontend/` | Het dashboard: `index.html`, `style.css`, `script.js` |
+| `backend/` | Python-server (FastAPI): data, opslag in SQLite, backtest-engine, API |
+| `backend/strategies/` | De strategieën: elk bestand is één strategie met een versie (bijv. `sma_cross_v1.py`) |
+| `backend/execution/` | De "executors": backtest nu, paper en live later |
+| `frontend/` | Het dashboard: `index.html`, `style.css` en de scripts (`script.js`, `common.js`, `backtest.js`) |
 | `tests/` | Automatische tests |
 | `data/` | Je lokale database en logbestanden (niet op GitHub) |
 | `PROJECT.md` | Gemaakte keuzes en de planning per fase |
