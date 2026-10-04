@@ -1,7 +1,7 @@
 # Projectkeuzes
 
 Dit bestand legt vast wat we hebben afgesproken, zodat keuzes niet ongemerkt veranderen.
-Laatst bijgewerkt: fase 3.
+Laatst bijgewerkt: fase 4.
 
 ## Afspraken
 
@@ -18,7 +18,7 @@ Laatst bijgewerkt: fase 3.
 | Risicolimieten | Max 2% dagverlies, max 3 open posities, max 2% risico per trade, max positiegrootte per instrument |
 | Weekend | Posities die in de winst staan worden vóór het weekend gesloten (forex/metalen) |
 | E-mail (alleen urgent) | Loop gestopt/gecrasht, en broker-verbinding langer dan 15 minuten weg. Maximaal 1 mail per probleem per uur. Naar Wordpressuser.0123@gmail.com |
-| Mac | Mac mini, blijft aan. De app houdt de Mac wakker zolang hij draait (komt in fase 4). |
+| Mac | Mac mini, blijft aan. De app houdt de Mac wakker zolang er paper-sessies actief zijn. |
 | Interface | Nederlands. Tijden in Nederlandse tijd, opslag in UTC. |
 | Kleuren grafiek | Stijgend = blauw en hol, dalend = koraalrood en gevuld (goed leesbaar bij kleurenblindheid) |
 
@@ -41,7 +41,7 @@ Laatst bijgewerkt: fase 3.
   - *Ideaal*: exacte grootte, voor zuivere percentages. Dit is de standaard in het dashboard.
   - *Realistisch*: hele lots vanaf 0,01. Is zelfs 0,01 lot te riskant, dan wordt de trade overgeslagen en gelogd.
 
-  Met € 1.000 en 2% risico (€ 20) valt goud op H1 vaak onder die minimumgrens. Voor paper trading kiezen we daarom straks bewust een stand.
+  Met € 1.000 en 2% risico (€ 20) valt goud op H1 vaak onder die minimumgrens. Een paper-sessie gebruikt de stand die op de Backtest-pagina staat. Kies *Realistisch* als de paper-test zo dicht mogelijk bij echt handelen moet liggen.
 - **Sharpe en Sortino.** Berekend uit dagrendementen, op jaarbasis met 252 handelsdagen (crypto: 365).
 - **Betrouwbaarheid.** Bij minder dan 30 trades staat er een waarschuwing.
 
@@ -68,6 +68,26 @@ Laatst bijgewerkt: fase 3.
 - **TradingView-import.** Je kunt de CSV van "List of trades" importeren. Trades worden gekoppeld als ze dezelfde richting hebben en hooguit één candle na elkaar openen. Uitleg staat in `docs/PINE_OMZETTEN.md`.
 - **Pine-omzetting.** Plak de Pine-code in de chat. Wat niet 1-op-1 kan, staat bovenin het bestand onder "PINE DIFFERENCES".
 
+## Paper trading (fase 4)
+
+- **Koersbron.** Live koersen komen voorlopig van Dukascopy, met een paar minuten vertraging. Zodra de cTrader-koppeling er is (fase 6), kan dit de koers van BlackBull zelf worden.
+- **De loop.** Elke `paper.poll_seconds` seconden (standaard 30) haalt het dashboard nieuwe minuutkoersen op en verwerkt elke actieve sessie. Dit staat alleen aan als `execution.mode = "paper"`.
+- **Zelfde code als de backtest.** De strategie beslist bij het sluiten van een candle, zoals in de backtest. De uitvoering is wel anders:
+  - een order wordt gevuld op de eerste minuutkoers erna;
+  - stop-loss en take-profit worden per minuut gecontroleerd in plaats van per candle.
+- **Herstarten is veilig.**
+  - Na elke update wordt de volledige toestand opgeslagen.
+  - Niets wordt dubbel verwerkt.
+  - Stond het dashboard uit, dan worden candles uit die tijd **niet** alsnog verhandeld. Stop-loss en take-profit worden wel nagelopen, zoals een broker dat zou doen.
+- **Versie vastgezet.** Bij de start wordt een vingerafdruk van het strategiebestand opgeslagen. Verandert het bestand daarna, dan wordt de sessie **geblokkeerd**: een wijziging moet een nieuwe versie (`_v2`) worden.
+- **Volledig logboek.** Elk signaal, elke order, elke uitvoering (prijs, tijd, kosten), elke overgeslagen beslissing en elke fout wordt bewaard, met markttijd én het moment van vastleggen.
+- **Vergelijking met de backtest.** Per sessie draait een backtest op exact dezelfde koersen en periode. Je ziet:
+  - beide rendementslijnen en het verschil in procentpunt;
+  - de kerncijfers naast elkaar;
+  - welke trades overeenkomen.
+- **Evaluatiekaart.** Per sessie leg je vooraf criteria vast, bijvoorbeeld "na 28 dagen: rendement hooguit 5 procentpunt naast de backtest". Na het **vastleggen** kunnen de criteria niet meer veranderen. Notities en het besluit (doorgaan / aanpassen / stoppen) blijven altijd aanpasbaar.
+- **Mac wakker houden.** Zolang er een sessie actief is, voorkomt het dashboard op macOS dat de Mac in slaap valt (`caffeinate`).
+
 ## Nog open (vragen we op het juiste moment)
 
 - **Reconciliatie-meldingen (fase 5):** wil je een e-mail als je eigen administratie en die van de broker niet overeenkomen? Uitleg volgt in fase 5.
@@ -77,6 +97,6 @@ Laatst bijgewerkt: fase 3.
 1. ✅ Projectopzet, data ophalen en tonen op een grafiek
 2. ✅ Backtest-engine met één voorbeeldstrategie en metrics
 3. ✅ Strategieën vergelijken, runs opslaan, CSV-import uit TradingView, Pine-omzetting, optimaliseren
-4. Paper trading-loop, logging, vergelijking live vs. backtest, evaluatiekaarten
+4. ✅ Paper trading-loop, logging, vergelijking live vs. backtest, evaluatiekaarten
 5. Risk engine, kill switch, e-mailmeldingen, reconciliatie
 6. Live-executor: standaard uit, eerst alleen testen op een demo-account

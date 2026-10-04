@@ -10,6 +10,7 @@ import { initBacktest } from './backtest.js';
 import { initOptimize } from './optimize.js';
 import { initCompare } from './compare.js';
 import { initHistory } from './history.js';
+import { initPaper } from './paper.js';
 
 const PREFS_KEY = 'td.chart.v1';
 
@@ -44,6 +45,7 @@ const views = {
   optimaliseren: { el: $('view-optimaliseren'), button: 'Optimalisatie starten' },
   vergelijken: { el: $('view-vergelijken'), button: 'Alle strategieën draaien' },
   historie: { el: $('view-historie'), button: '' },
+  paper: { el: $('view-paper'), button: '' },
 };
 const modules = {};
 
@@ -392,6 +394,7 @@ async function init() {
   modules.optimaliseren = await initOptimize({ selection, setBusy, backtest, navigate });
   modules.vergelijken = initCompare({ selection, setBusy, backtest, navigate });
   modules.historie = initHistory({ backtest, navigate });
+  modules.paper = initPaper({ selection, backtest, navigate });
 
   window.addEventListener('hashchange', () => showView(location.hash.slice(1)));
   showView(location.hash.slice(1) || 'grafiek');

@@ -23,3 +23,9 @@ mode = "paper"
 provider = "dukascopy"
 default_symbol = "XAUUSD"
 default_timeframe = "H1"
+
+[paper]
+# How often (in seconds) live prices are fetched and paper strategies run.
+poll_seconds = 30
+# Keep this Mac awake while paper strategies are running (macOS only).
+keep_awake = true

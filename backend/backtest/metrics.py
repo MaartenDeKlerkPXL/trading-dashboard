@@ -35,7 +35,7 @@ def compute_metrics(
 ) -> dict:
     final = equity[-1][1] if equity else capital
     dd = drawdown_curve(equity)
-    max_dd = -min((v for _, v in dd), default=0.0)
+    max_dd = max(0.0, -min((v for _, v in dd), default=0.0))
 
     rets = daily_returns(equity)
     sharpe = sortino = None

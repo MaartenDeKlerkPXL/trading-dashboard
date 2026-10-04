@@ -266,7 +266,7 @@ def test_match_trades():
 @pytest.fixture
 def client(tmp_path):
     settings = replace(Settings(), db_path=tmp_path / "api.sqlite")
-    with TestClient(create_app(settings, provider=FakeProvider())) as c:
+    with TestClient(create_app(settings, provider=FakeProvider(), start_loop=False)) as c:
         yield c
 
 

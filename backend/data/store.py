@@ -74,8 +74,12 @@ class CandleStore:
 
     # ---------- planning ----------
 
-    def plan(self, symbol: str, level: str, start: int, end: int) -> tuple[list[tuple[int, bool]], int]:
-        """Chunks that must be downloaded, as (chunk_start, is_active), plus the total chunk count."""
+    def plan(self, symbol: str, level: str, start: int, end: int,
+             refresh_after: int = REFRESH_INCOMPLETE_AFTER) -> tuple[list[tuple[int, bool]], int]:
+        """Chunks that must be downloaded, as (chunk_start, is_active), plus the total chunk count.
+
+        Unfinished chunks (e.g. today) are downloaded again when older than `refresh_after` seconds.
+        """
         now = int(self.now())
         known = {
             row["chunk_start"]: row
@@ -94,7 +98,7 @@ class CandleStore:
             if row is not None:
                 if row["complete"]:
                     continue
-                if now - row["fetched_at"] < REFRESH_INCOMPLETE_AFTER:
+                if now - row["fetched_at"] < refresh_after:
                     continue
             todo.append((cs, active))
         return todo, total
@@ -108,9 +112,10 @@ class CandleStore:
         start: int,
         end: int,
         progress: Callable[[int, int], None] | None = None,
+        refresh_after: int = REFRESH_INCOMPLETE_AFTER,
     ) -> SyncResult:
         instrument = INSTRUMENTS[symbol]
-        todo, total = self.plan(symbol, level, start, end)
+        todo, total = self.plan(symbol, level, start, end, refresh_after)
         result = SyncResult(total=total, skipped=total - len(todo), errors=[])
         done = result.skipped
         if progress:

@@ -36,7 +36,7 @@
         <li><a class="sidenav__link" href="#optimaliseren" data-view="optimaliseren">Optimaliseren</a></li>
         <li><a class="sidenav__link" href="#vergelijken" data-view="vergelijken">Vergelijken</a></li>
         <li><a class="sidenav__link" href="#historie" data-view="historie">Historie</a></li>
-        <li><span class="sidenav__link is-disabled">Paper trading <small>fase 4</small></span></li>
+        <li><a class="sidenav__link" href="#paper" data-view="paper">Paper trading</a></li>
         <li><span class="sidenav__link is-disabled">Risico &amp; alerts <small>fase 5</small></span></li>
       </ul>
     </nav>
@@ -511,6 +511,138 @@
               <tbody></tbody>
             </table>
           </div>
+        </section>
+      </div>
+      <!-- ========== Paper trading ========== -->
+      <div class="view" id="view-paper" hidden>
+        <section class="panel paper-status" aria-live="polite">
+          <div class="paper-status__main">
+            <span class="pulse" id="ppPulse" aria-hidden="true"></span>
+            <div>
+              <h1 class="panel__title" id="ppLoopTitle">Paper trading</h1>
+              <p class="panel__hint" id="ppLoopText"></p>
+            </div>
+          </div>
+          <button class="btn btn--small btn--ghost" type="button" id="ppTick">Nu bijwerken</button>
+        </section>
+
+        <div class="notice notice--calm">
+          <p class="notice__item">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3L12 3zm0 6v4m0 3v.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Paper trading werkt alleen zolang deze Mac aan staat en het Terminal-venster open is. Candles die je mist terwijl het dashboard uit staat, worden niet alsnog verhandeld. Stop-loss en take-profit worden achteraf wel nagelopen, zoals een broker dat zou doen. <span id="ppAwake"></span></span>
+          </p>
+        </div>
+        <div class="notice" id="ppError" role="alert" hidden></div>
+
+        <details class="panel import" id="ppNew">
+          <summary>Nieuwe paper-strategie starten</summary>
+          <form class="import__form" id="ppForm" autocomplete="off" novalidate>
+            <p class="hint" id="ppNewHint"></p>
+            <div class="import__fields">
+              <div class="field field--wide">
+                <label for="ppStrategy">Strategie</label>
+                <select id="ppStrategy"></select>
+              </div>
+            </div>
+            <div class="group__fields pp-params" id="ppParams"></div>
+            <button class="btn btn--primary" type="submit" id="ppStart">Paper trading starten</button>
+          </form>
+        </details>
+
+        <section class="pp-cards" id="ppCards" aria-label="Paper-strategieën"></section>
+
+        <section class="pp-detail" id="ppDetail" hidden>
+          <header class="bt-head">
+            <h2 class="bt-head__title" id="ppTitle"></h2>
+            <p class="bt-head__subtitle" id="ppSubtitle"></p>
+          </header>
+          <div class="notice" id="ppBlocked" role="alert" hidden></div>
+
+          <section class="kpis" id="ppKpis" aria-label="Kerngetallen paper"></section>
+
+          <section class="panel">
+            <header class="panel__head">
+              <h3 class="panel__title">Paper tegenover de backtest</h3>
+              <p class="panel__hint">Dezelfde strategie en instellingen, op dezelfde koersen over dezelfde periode. Onder: het verschil in procentpunt.</p>
+            </header>
+            <ul class="series-legend" id="ppLegend"></ul>
+            <div class="chart-wrap chart-wrap--equity">
+              <div class="legend" id="ppChartLegend" aria-hidden="true"></div>
+              <div class="chart" id="ppChart"></div>
+            </div>
+            <div class="table-wrap table-wrap--plain">
+              <table class="table table--compare" id="ppCompare">
+                <thead><tr><th scope="col"></th><th scope="col" class="num">Paper</th><th scope="col" class="num">Backtest</th><th scope="col" class="num">Verschil</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <p class="panel__hint pp-match" id="ppMatch"></p>
+          </section>
+
+          <section class="panel evaluation" id="ppEval">
+            <header class="panel__head">
+              <h3 class="panel__title">Evaluatiekaart</h3>
+              <p class="panel__hint" id="ppEvalHint">Leg vooraf vast wanneer deze strategie geslaagd is. Na het vastleggen kunnen de criteria niet meer veranderen.</p>
+            </header>
+            <div class="evaluation__body">
+              <div class="evaluation__criteria">
+              <ul class="criteria" id="ppCriteria"></ul>
+              <div class="criteria-edit" id="ppCriteriaEdit">
+                <div id="ppCriteriaRows"></div>
+                <div class="btn-row">
+                  <button class="btn btn--small btn--ghost" type="button" id="ppAddCriterion">Criterium toevoegen</button>
+                  <button class="btn btn--small btn--ghost" type="button" id="ppSaveCriteria">Opslaan</button>
+                  <button class="btn btn--small" type="button" id="ppLockCriteria">Vastleggen</button>
+                </div>
+              </div>
+              </div>
+              <div class="evaluation__notes">
+                <div class="field">
+                  <label for="ppDecision">Besluit</label>
+                  <select id="ppDecision"></select>
+                </div>
+                <div class="field">
+                  <label for="ppNotes">Mijn bevindingen</label>
+                  <textarea id="ppNotes" rows="6" placeholder="Wat valt op? Wat zou je aanpassen in een volgende versie?"></textarea>
+                </div>
+                <p class="hint" id="ppNotesSaved" aria-live="polite"></p>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <header class="panel__head">
+              <h3 class="panel__title" id="ppTradesTitle">Trades</h3>
+            </header>
+            <div class="table-wrap">
+              <table class="table" id="ppTrades">
+                <thead><tr><th scope="col">#</th><th scope="col">Richting</th><th scope="col">Instap</th><th scope="col" class="num">Prijs</th><th scope="col">Uitstap</th><th scope="col" class="num">Prijs</th><th scope="col" class="num">Lots</th><th scope="col">Reden</th><th scope="col" class="num">Kosten</th><th scope="col" class="num">R</th><th scope="col" class="num">Resultaat</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <header class="panel__head">
+              <h3 class="panel__title" id="ppLogTitle">Volledig logboek</h3>
+              <div class="field field--inline">
+                <label for="ppLogFilter">Toon</label>
+                <select id="ppLogFilter">
+                  <option value="">alles</option>
+                  <option value="signal">signalen</option>
+                  <option value="order">orders</option>
+                  <option value="fill,exit">uitvoeringen</option>
+                  <option value="skip,warning,error">overgeslagen en fouten</option>
+                </select>
+              </div>
+            </header>
+            <div class="table-wrap">
+              <table class="table table--log" id="ppLog">
+                <thead><tr><th scope="col">Markttijd</th><th scope="col">Vastgelegd</th><th scope="col">Soort</th><th scope="col">Gebeurtenis</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
         </section>
       </div>
     </main>

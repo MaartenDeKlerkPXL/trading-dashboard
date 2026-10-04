@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import platform
 import uuid
@@ -28,7 +30,10 @@ from .data.store import CandleStore
 from .db import connect
 from .compare import build_comparison
 from .importers.tradingview import ImportError_, build_run, parse_trades
+from .paper.api import build_router as paper_router
+from .paper.engine import PaperEngine
 from .runs import RunStore
+from .system import KeepAwake
 from .tasks import TaskManager
 from .strategies import code_hash, describe, load_strategies
 
@@ -79,7 +84,8 @@ def _validate(symbol: str, timeframe: str, start: str, end: str) -> tuple[int, i
         raise HTTPException(exc.status, exc.message) from None
 
 
-def create_app(settings: Settings | None = None, provider: DataProvider | None = None, store_kwargs: dict | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, provider: DataProvider | None = None, store_kwargs: dict | None = None,
+               start_loop: bool = True) -> FastAPI:
     settings = settings or load_settings()
 
     @asynccontextmanager
@@ -90,9 +96,22 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         app.state.jobs = JobManager(store)
         app.state.runs = RunStore(conn)
         app.state.tasks = TaskManager()
+        app.state.paper = PaperEngine(conn, store, settings)
+        app.state.keep_awake = KeepAwake(settings.paper.keep_awake)
+        loop_task = None
+        if start_loop and settings.execution.mode == "paper":
+            paper = app.state.paper
+            loop_task = asyncio.create_task(
+                paper.run_forever(on_tick=lambda: app.state.keep_awake.update(paper.any_running()))
+            )
         try:
             yield
         finally:
+            if loop_task:
+                loop_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await loop_task
+            app.state.keep_awake.stop()
             conn.close()
 
     app = FastAPI(title="Trading Dashboard", version=__version__, lifespan=lifespan)
@@ -110,7 +129,7 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         return response
 
     @app.get("/api/health")
-    def health():
+    async def health():
         return {
             "status": "ok",
             "version": __version__,
@@ -121,7 +140,7 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         }
 
     @app.get("/api/config")
-    def config():
+    async def config():
         return {
             "timezone": settings.app.timezone,
             "mode": settings.execution.mode,
@@ -155,14 +174,14 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         return job.to_dict()
 
     @app.get("/api/data/jobs/{job_id}")
-    def get_job(job_id: str, request: Request):
+    async def get_job(job_id: str, request: Request):
         job = request.app.state.jobs.jobs.get(job_id)
         if job is None:
             raise HTTPException(404, "Download-taak niet gevonden (is de server herstart?).")
         return job.to_dict()
 
     @app.get("/api/candles")
-    def candles(symbol: str, timeframe: str, start: str, end: str, request: Request):
+    async def candles(symbol: str, timeframe: str, start: str, end: str, request: Request):
         start_ts, end_ts = _validate(symbol, timeframe, start, end)
         store: CandleStore = request.app.state.store
         rows = store.read(symbol, timeframe, start_ts, end_ts)
@@ -180,7 +199,7 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         }
 
     @app.get("/api/strategies")
-    def strategies():
+    async def strategies():
         return [describe(cls) for cls in load_strategies().values()]
 
     def run_one(setup, cls, params: dict, oos_pct: float = 0.0) -> dict:
@@ -250,14 +269,14 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         return tasks.start("optimize", work).to_dict(with_result=False)
 
     @app.get("/api/tasks/{task_id}")
-    def get_task(task_id: str, request: Request):
+    async def get_task(task_id: str, request: Request):
         task = request.app.state.tasks.tasks.get(task_id)
         if task is None:
             raise HTTPException(404, "Taak niet gevonden (is de server herstart?).")
         return task.to_dict(with_result=task.status == "done")
 
     @app.delete("/api/tasks/{task_id}")
-    def cancel_task(task_id: str, request: Request):
+    async def cancel_task(task_id: str, request: Request):
         task = request.app.state.tasks.tasks.get(task_id)
         if task is None:
             raise HTTPException(404, "Taak niet gevonden.")
@@ -267,7 +286,7 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
     # ---------- TradingView import and comparison ----------
 
     @app.post("/api/import/tradingview")
-    def import_tradingview(body: TradingViewImport, request: Request):
+    async def import_tradingview(body: TradingViewImport, request: Request):
         if body.symbol not in INSTRUMENTS:
             raise HTTPException(400, f"Onbekend instrument '{body.symbol}'.")
         if body.timeframe not in TIMEFRAMES:
@@ -283,7 +302,7 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
                 "capital_inferred": result["settings"]["capital_inferred"], "warnings": result["warnings"]}
 
     @app.get("/api/compare")
-    def compare(ids: str, request: Request):
+    async def compare(ids: str, request: Request):
         try:
             run_ids = [int(x) for x in ids.split(",") if x.strip()]
         except ValueError:
@@ -312,12 +331,12 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         return run
 
     @app.get("/api/runs")
-    def list_runs(request: Request):
+    async def list_runs(request: Request):
         hashes = _current_hashes()
         return [_flag_changed(r, hashes) for r in request.app.state.runs.list()]
 
     @app.get("/api/runs/{run_id}")
-    def get_run(run_id: int, request: Request):
+    async def get_run(run_id: int, request: Request):
         run = request.app.state.runs.get(run_id)
         if run is None:
             raise HTTPException(404, f"Run {run_id} bestaat niet (meer).")
@@ -325,16 +344,18 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         return _flag_changed(run, _current_hashes())
 
     @app.patch("/api/runs/{run_id}")
-    def update_run(run_id: int, body: RunUpdate, request: Request):
+    async def update_run(run_id: int, body: RunUpdate, request: Request):
         if not request.app.state.runs.update(run_id, body.name, body.note):
             raise HTTPException(404, f"Run {run_id} bestaat niet (meer).")
         return {"ok": True}
 
     @app.delete("/api/runs/{run_id}")
-    def delete_run(run_id: int, request: Request):
+    async def delete_run(run_id: int, request: Request):
         if not request.app.state.runs.delete(run_id):
             raise HTTPException(404, f"Run {run_id} bestaat niet (meer).")
         return {"ok": True}
+
+    app.include_router(paper_router(settings))
 
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="dashboard")
     return app

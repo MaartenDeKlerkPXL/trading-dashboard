@@ -8,12 +8,12 @@ take-profit could have been hit, the stop-loss is assumed to come first.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from ..data.instruments import Instrument
 from ..strategies.base import Bar, Position, Side
 from .base import BrokerExecutor, CostModel, OrderRequest, SizingRules, size_position
-from .events import EventLog
+from .events import EventLog, nl, nl_lots
 
 DAY = 86400
 
@@ -59,6 +59,7 @@ class BacktestExecutor(BrokerExecutor):
         self.bar_index = -1
         self.bars_in_market = 0
         self.halted = False
+        self.trade_offset = 0   # trades closed in earlier sessions of a long-running (paper) account
 
     # ---------- BrokerExecutor ----------
 
@@ -95,6 +96,30 @@ class BacktestExecutor(BrokerExecutor):
         self.last_equity = self.balance
         if self.equity_curve:
             self.equity_curve[-1] = (self.equity_curve[-1][0], self.balance)
+
+    # ---------- persistence (paper/live keep an account alive across restarts) ----------
+
+    def to_state(self) -> dict:
+        return {
+            "balance": self.balance,
+            "last_equity": self.last_equity,
+            "halted": self.halted,
+            "bar_index": self.bar_index,
+            "bars_in_market": self.bars_in_market,
+            "trade_count": self.trade_offset + len(self.trades),
+            "position": asdict(self.pos) if self.pos else None,
+            "pending": [asdict(r) for r in self.pending],
+        }
+
+    def restore(self, state: dict) -> None:
+        self.balance = state["balance"]
+        self.last_equity = state["last_equity"]
+        self.halted = state["halted"]
+        self.bar_index = state["bar_index"]
+        self.bars_in_market = state["bars_in_market"]
+        self.trade_offset = state["trade_count"]
+        self.pos = _Open(**state["position"]) if state.get("position") else None
+        self.pending = [OrderRequest(**r) for r in state.get("pending", [])]
 
     # ---------- internals ----------
 
@@ -184,7 +209,7 @@ class BacktestExecutor(BrokerExecutor):
         )
         self.log.add(
             bar.ts, "fill",
-            f"{'Long' if side == 'long' else 'Short'} geopend: {lots:g} lot op {fill:.{self.instrument.digits}f}",
+            f"{'Long' if side == 'long' else 'Short'} geopend: {nl_lots(lots)} lot op {nl(fill, self.instrument.digits)}",
             client_id=req.client_id, side=side, lots=lots, price=fill,
             stop_loss=req.stop_loss, take_profit=take_profit, commission=commission,
         )
@@ -232,7 +257,7 @@ class BacktestExecutor(BrokerExecutor):
             "financing": p.financing_eur,
         }
         trade = {
-            "id": len(self.trades) + 1,
+            "id": self.trade_offset + len(self.trades) + 1,
             "side": p.side,
             "lots": p.lots,
             "entry_ts": p.entry_ts,
@@ -256,7 +281,7 @@ class BacktestExecutor(BrokerExecutor):
         self.log.add(
             ts, "exit",
             f"{'Long' if p.side == 'long' else 'Short'} gesloten ({reason}) op "
-            f"{price:.{self.instrument.digits}f}: {'+' if net >= 0 else '−'}€{abs(net):.2f}",
+            f"{nl(price, self.instrument.digits)}: {'+' if net >= 0 else '−'}€ {nl(abs(net))}",
             client_id=p.client_id, price=price, pnl=net,
         )
         if self.balance <= 0:

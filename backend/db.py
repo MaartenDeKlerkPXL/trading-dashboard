@@ -53,6 +53,54 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX runs_group ON runs (group_id);
     """,
+    """
+    CREATE TABLE paper_sessions (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at    INTEGER NOT NULL,
+        updated_at    INTEGER NOT NULL,
+        status        TEXT NOT NULL,           -- running | paused | stopped | blocked
+        status_reason TEXT NOT NULL DEFAULT '',
+        symbol        TEXT NOT NULL,
+        timeframe     TEXT NOT NULL,
+        strategy      TEXT NOT NULL,           -- 'name@version'
+        version       TEXT NOT NULL,
+        code_hash     TEXT NOT NULL,           -- the strategy file this session is locked to
+        params        TEXT NOT NULL,           -- JSON
+        settings      TEXT NOT NULL,           -- JSON: capital, risk, sizing, costs
+        state         TEXT NOT NULL            -- JSON: account + loop position
+    );
+    CREATE TABLE paper_events (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES paper_sessions(id) ON DELETE CASCADE,
+        ts         INTEGER NOT NULL,           -- market time of the event
+        logged_at  INTEGER NOT NULL,           -- wall-clock time it was recorded
+        kind       TEXT NOT NULL,
+        message    TEXT NOT NULL,
+        data       TEXT NOT NULL               -- JSON
+    );
+    CREATE INDEX paper_events_session ON paper_events (session_id, id);
+    CREATE TABLE paper_trades (
+        session_id INTEGER NOT NULL REFERENCES paper_sessions(id) ON DELETE CASCADE,
+        trade_id   INTEGER NOT NULL,
+        exit_ts    INTEGER NOT NULL,
+        data       TEXT NOT NULL,              -- JSON
+        PRIMARY KEY (session_id, trade_id)
+    ) WITHOUT ROWID;
+    CREATE TABLE paper_equity (
+        session_id INTEGER NOT NULL REFERENCES paper_sessions(id) ON DELETE CASCADE,
+        ts         INTEGER NOT NULL,           -- start of a 15-minute window
+        equity     REAL NOT NULL,
+        PRIMARY KEY (session_id, ts)
+    ) WITHOUT ROWID;
+    CREATE TABLE evaluations (
+        session_id INTEGER PRIMARY KEY REFERENCES paper_sessions(id) ON DELETE CASCADE,
+        criteria   TEXT NOT NULL DEFAULT '[]', -- JSON
+        notes      TEXT NOT NULL DEFAULT '',
+        decision   TEXT NOT NULL DEFAULT 'open',
+        locked_at  INTEGER,
+        updated_at INTEGER NOT NULL
+    );
+    """,
 ]
 
 

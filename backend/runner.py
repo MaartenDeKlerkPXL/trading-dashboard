@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .execution.base import BrokerExecutor, OrderRequest
-from .execution.events import EventLog
+from .execution.events import EventLog, nl
 from .strategies.base import Bar, History, Strategy
 
 
@@ -28,7 +28,7 @@ class Runner:
 
         ts = bars[count - 1].ts
         prefix = f"{self.strategy.key()}:{self.symbol}:{ts}"
-        fmt = lambda v: "—" if v is None else f"{v:.{self.digits}f}"  # noqa: E731
+        fmt = lambda v: "—" if v is None else nl(v, self.digits)  # noqa: E731
         self.log.add(
             ts, "signal",
             f"Signaal {signal.action}" + (f" — {signal.reason}" if signal.reason else "")

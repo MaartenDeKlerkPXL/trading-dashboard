@@ -15,7 +15,9 @@ def create_executor(mode: str, **kwargs) -> BrokerExecutor:
 
         return BacktestExecutor(**kwargs)
     if mode == "paper":
-        raise NotImplementedError("De paper-executor komt in fase 4.")
+        from .paper import PaperExecutor
+
+        return PaperExecutor(**kwargs)
     if mode == "live":
         raise NotImplementedError("De live-executor komt in fase 6 en staat standaard uit.")
     raise ValueError(f"Onbekende modus '{mode}'")

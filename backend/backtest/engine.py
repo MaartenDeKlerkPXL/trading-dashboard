@@ -73,7 +73,10 @@ def run_backtest(
     instrument: Instrument,
     config: BacktestConfig,
     rates: RateSeries | None = None,
+    close_at_end: bool = True,
 ) -> dict:
+    """close_at_end=False leaves a final open position open (marked at the last price), e.g. to
+    compare with a paper session in which that position is still running."""
     config.validate()
     if rates is None:
         rates = RateSeries([], FALLBACK_EUR_RATES.get(instrument.quote_currency, 1.0), instrument.quote_currency)
@@ -87,7 +90,8 @@ def run_backtest(
         runner.on_closed_bar(bars, i + 1)
 
     if bars:
-        executor.close_all(bars[-1], rates.to_eur(bars[-1].ts), "Einde backtest")
+        if close_at_end:
+            executor.close_all(bars[-1], rates.to_eur(bars[-1].ts), "Einde backtest")
         if executor.pending:
             log.add(bars[-1].ts, "info", "Signaal op de laatste candle is niet meer uitgevoerd.")
 

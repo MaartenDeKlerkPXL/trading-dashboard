@@ -42,11 +42,18 @@ class DataSettings:
 
 
 @dataclass(frozen=True)
+class PaperSettings:
+    poll_seconds: int = 30      # how often prices are fetched and strategies run
+    keep_awake: bool = True     # keep the Mac from sleeping while paper sessions run
+
+
+@dataclass(frozen=True)
 class Settings:
     app: AppSettings = field(default_factory=AppSettings)
     account: AccountSettings = field(default_factory=AccountSettings)
     execution: ExecutionSettings = field(default_factory=ExecutionSettings)
     data: DataSettings = field(default_factory=DataSettings)
+    paper: PaperSettings = field(default_factory=PaperSettings)
     db_path: Path = DATA_DIR / "trading.sqlite"
 
 
@@ -74,11 +81,14 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
         account=_section(raw, "account", AccountSettings),
         execution=_section(raw, "execution", ExecutionSettings),
         data=_section(raw, "data", DataSettings),
+        paper=_section(raw, "paper", PaperSettings),
     )
     if settings.execution.mode not in EXECUTION_MODES:
         raise ConfigError(
             f"execution.mode moet een van {', '.join(EXECUTION_MODES)} zijn, niet '{settings.execution.mode}'"
         )
+    if not 10 <= settings.paper.poll_seconds <= 600:
+        raise ConfigError("paper.poll_seconds moet tussen 10 en 600 liggen.")
     if settings.execution.mode == "live":
         # Live trading is only built in phase 6; refuse to start rather than guess.
         raise ConfigError("Live-modus bestaat nog niet (komt in fase 6). Zet execution.mode op 'paper'.")
