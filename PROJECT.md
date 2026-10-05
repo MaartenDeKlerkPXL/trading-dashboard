@@ -1,7 +1,7 @@
 # Projectkeuzes
 
 Dit bestand legt vast wat we hebben afgesproken, zodat keuzes niet ongemerkt veranderen.
-Laatst bijgewerkt: fase 5.
+Laatst bijgewerkt: fase 6.
 
 ## Afspraken
 
@@ -117,11 +117,26 @@ Laatst bijgewerkt: fase 5.
   - of elke open positie een stop-loss heeft;
   - of het aantal open posities binnen de limiet blijft.
 
-  In fase 6 vergelijkt ze met wat de broker meldt. Een afwijking verschijnt op de pagina Risico & alerts. E-mail daarvoor staat uit (`alerts.email_on_reconciliation`) totdat je anders beslist.
+  Bij live-strategieën vergelijkt ze met wat de broker meldt. Een afwijking verschijnt op de pagina Risico & alerts én komt per e-mail (`alerts.email_on_reconciliation = true`, jouw keuze in fase 5).
 
-## Nog open (vragen we op het juiste moment)
+## Live trading (fase 6)
 
-- **Reconciliatie-e-mail:** wil je een e-mail bij een afwijking tussen je administratie en de broker? Staat nu uit.
+Uitleg en stappen: `docs/LIVE_TRADING.md`.
+
+- **Koppeling:** cTrader Open API (officiële berichtdefinities van Spotware, MIT-licentie) over een versleutelde verbinding. Inloggen met je cTrader ID via OAuth, alleen trading-rechten. De toegangssleutel staat in `data/ctrader_token.json` en wordt automatisch verlengd.
+- **Drempels:**
+  - `execution.mode = "live"`;
+  - een gekozen account;
+  - per strategie de bedragen overtypen (kapitaal, risico per trade, max dagverlies);
+  - echt geld alleen met `live.allow_real_money = true` (staat uit);
+  - maximaal `live.max_capital` (€ 1.000) per strategie.
+- **Zelfde strategiecode**: de live-executor neemt precies dezelfde beslissingen en gebruikt dezelfde risicoregels en positiegrootte als paper. Alleen het uitvoeren gebeurt bij de broker.
+- **Koersen** voor live-beslissingen komen van BlackBull zelf (minuutcandles via cTrader).
+- **Stop-loss bij de broker**: als afstand meegestuurd met de order en daarna op het exacte niveau gezet. Ontbreekt hij, dan wordt hij alsnog gezet en volgt een e-mail.
+- **Unieke order-ID's**: eerst opslaan, dan versturen. Een order met een onbekende uitkomst wordt opgezocht bij de broker en nooit opnieuw verstuurd.
+- **Trades** komen uit de deal-geschiedenis van de broker (prijs, commissie, swap).
+- **Live gebruikt altijd hele lots** (0,01-stappen van de broker).
+- **Testorder** op demo: 0,01 lot goud met stop-loss, controleren, direct sluiten.
 
 ## Fases
 
@@ -130,4 +145,4 @@ Laatst bijgewerkt: fase 5.
 3. ✅ Strategieën vergelijken, runs opslaan, CSV-import uit TradingView, Pine-omzetting, optimaliseren
 4. ✅ Paper trading-loop, logging, vergelijking live vs. backtest, evaluatiekaarten
 5. ✅ Risk engine, kill switch, e-mailmeldingen, reconciliatie
-6. Live-executor: standaard uit, eerst alleen testen op een demo-account
+6. ✅ Live-executor: standaard uit, eerst alleen testen op een demo-account

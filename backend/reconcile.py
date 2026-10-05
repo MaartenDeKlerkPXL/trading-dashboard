@@ -59,7 +59,7 @@ def reconcile_session(row, trades: list[dict], last_equity: float | None) -> lis
 def reconcile_paper(paper, risk: RiskLimits) -> dict:
     now = int(time.time())
     sessions, total = [], 0
-    rows = paper.conn.execute("SELECT * FROM paper_sessions ORDER BY id DESC").fetchall()
+    rows = paper.conn.execute("SELECT * FROM paper_sessions WHERE mode='paper' ORDER BY id DESC").fetchall()
     for row in rows:
         last = paper.conn.execute("SELECT equity FROM paper_equity WHERE session_id=? ORDER BY ts DESC LIMIT 1",
                                   (row["id"],)).fetchone()

@@ -25,14 +25,16 @@ log = logging.getLogger(__name__)
 
 
 class Monitor:
-    def __init__(self, paper, alerter: Alerter, settings: Settings, heartbeat_url: str = "", now=time.time):
+    def __init__(self, paper, alerter: Alerter, settings: Settings, heartbeat_url: str = "", now=time.time,
+                 live=None):
         self.paper = paper
+        self.live = live
         self.conn = paper.conn
         self.alerter = alerter
         self.settings = settings
         self.heartbeat_url = heartbeat_url.strip()
         self.now = now
-        self.loop_failures = 0
+        self.loop_failures: dict[str, int] = {}
         self.feed_down_since: dict[str, int] = {}
         self.last_reconcile = 0
         self.heartbeat_error: str | None = None
@@ -63,49 +65,60 @@ class Monitor:
     # ---------- after every loop round ----------
 
     async def after_tick(self, result: dict | None, error: Exception | None) -> None:
+        """After every paper round (the paper loop always runs): also heartbeat and reconciliation."""
         now = int(self.now())
         set_state(self.conn, "heartbeat", now)
-        await self._loop_health(result, error)
-        await self._feed(result or {}, now)
+        await self._loop_health("paper", result, error)
+        await self._feed("paper", result or {}, now)
         await self._ping()
         if now - self.last_reconcile >= self.settings.alerts.reconcile_minutes * 60:
             await self.reconcile()
 
-    async def _loop_health(self, result: dict | None, error: Exception | None) -> None:
+    async def after_live_tick(self, result: dict | None, error: Exception | None) -> None:
+        now = int(self.now())
+        await self._loop_health("live", result, error)
+        await self._feed("live", result or {}, now)
+
+    async def _loop_health(self, source: str, result: dict | None, error: Exception | None) -> None:
+        key = "loop" if source == "paper" else "loop:live"
+        name = "Paper trading-loop" if source == "paper" else "Live trading-loop"
         failed = error is not None or bool(result and result.get("session_errors"))
         if not failed:
-            self.loop_failures = 0
-            self.alerter.resolve("loop")
+            self.loop_failures[source] = 0
+            self.alerter.resolve(key)
             return
-        self.loop_failures += 1
-        if self.loop_failures >= self.settings.alerts.loop_errors:
+        self.loop_failures[source] = self.loop_failures.get(source, 0) + 1
+        n = self.loop_failures[source]
+        if n >= self.settings.alerts.loop_errors:
             detail = f"{type(error).__name__}: {error}" if error else "; ".join(result["session_errors"])
             await self.alerter.raise_(
-                "loop", "urgent", "Paper trading-loop werkt niet",
-                f"De loop is {self.loop_failures} rondes achter elkaar mislukt, dus er wordt niet gehandeld. "
+                key, "urgent", f"{name} werkt niet",
+                f"De loop is {n} rondes achter elkaar mislukt, dus er wordt niet gehandeld. "
                 f"Laatste fout: {detail[:500]}\nKijk in het dashboard of in data/app.log.",
                 email=True)
 
-    async def _feed(self, result: dict, now: int) -> None:
+    async def _feed(self, source: str, result: dict, now: int) -> None:
         feed = result.get("feed") or {}
         if not result.get("sessions"):
             # Nothing running: the connection does not matter right now.
-            for symbol in list(self.feed_down_since):
-                self.alerter.resolve(f"feed:{symbol}")
-            self.feed_down_since.clear()
+            for key in [k for k in self.feed_down_since if k.startswith(f"{source}:")]:
+                self.alerter.resolve(f"feed:{key.split(':', 1)[1]}")
+                del self.feed_down_since[key]
             return
         limit = self.settings.alerts.feed_down_minutes * 60
         for symbol, problem in feed.items():
+            key = f"{source}:{symbol}"
             if problem is None:
-                if self.feed_down_since.pop(symbol, None) is not None:
+                if self.feed_down_since.pop(key, None) is not None:
                     self.alerter.resolve(f"feed:{symbol}")
                 continue
-            since = self.feed_down_since.setdefault(symbol, now)
+            since = self.feed_down_since.setdefault(key, now)
             minutes = (now - since) // 60
             if now - since >= limit:
+                what = "met de broker (cTrader)" if symbol == "cTrader" else f"voor {symbol}"
                 await self.alerter.raise_(
-                    f"feed:{symbol}", "urgent", f"Geen verbinding voor {symbol}",
-                    f"Al {minutes} minuten lukt het niet om koersen voor {symbol} op te halen "
+                    f"feed:{symbol}", "urgent", f"Geen verbinding {what}",
+                    f"Al {minutes} minuten lukt het niet om koersen {what} op te halen "
                     f"(sinds {self._time(since)}). Zolang dat zo is, wordt er niet gehandeld en worden stop-loss "
                     f"en take-profit niet gecontroleerd. Fout: {problem}",
                     email=True)
@@ -125,6 +138,13 @@ class Monitor:
     async def reconcile(self) -> dict:
         self.last_reconcile = int(self.now())
         report = reconcile_paper(self.paper, self.settings.risk)
+        if self.live is not None:
+            broker = await self.live.reconcile_broker()
+            report["sessions"] = broker["sessions"] + report["sessions"]
+            report["differences"] += broker["differences"]
+            report["broker_error"] = broker["error"]
+            report["unknown_positions"] = broker["unknown_positions"]
+            report["live_open_positions"] = self.live.open_positions()
         set_state(self.conn, "reconciliation", report)
         if report["differences"]:
             names = ", ".join(f"sessie {s['id']}" for s in report["sessions"] if s["differences"])
@@ -144,5 +164,5 @@ class Monitor:
             "heartbeat_url": bool(self.heartbeat_url),
             "heartbeat_error": self.heartbeat_error,
             "loop_failures": self.loop_failures,
-            "feed_down": {s: t for s, t in self.feed_down_since.items()},
+            "feed_down": {k.split(":", 1)[1]: t for k, t in self.feed_down_since.items()},
         }

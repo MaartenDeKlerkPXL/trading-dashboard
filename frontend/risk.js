@@ -147,13 +147,15 @@ export function initRisk() {
       .map(([s, v]) => `${s} ${lots(v)}`).join(' · ');
     els.limits.replaceChildren(
       limitTile('Max dagverlies', `${fmtNumber(l.max_daily_loss_pct, 1)}%`, 'per strategie, vanaf 00:00'),
-      limitTile('Open posities', `${d.open_positions} / ${l.max_open_positions}`, 'alle strategieën samen'),
+      limitTile('Open posities', `${d.open_positions} / ${l.max_open_positions}`,
+        d.live_open_positions ? `paper samen; live apart: ${d.live_open_positions}` : 'alle strategieën samen'),
       limitTile('Max risico per trade', `${fmtNumber(l.max_risk_per_trade_pct, 1)}%`, 'van de equity, tot de stop-loss'),
       limitTile('Max positiegrootte', lots(l.max_lots_default), custom || 'voor elk instrument'),
       limitTile('Weekendregel', l.weekend_close ? 'Aan' : 'Uit', l.weekend_close
         ? `forex en metalen in de winst sluiten ${l.weekend_close_minutes_before} min vóór de sluiting op vrijdag`
         : 'posities blijven over het weekend open'),
-      limitTile('Uitvoering', d.mode === 'paper' ? 'Paper' : d.mode, 'live trading staat uit (fase 6)'),
+      limitTile('Uitvoering', d.mode === 'live' ? 'Paper + live' : 'Paper',
+        d.mode === 'live' ? 'orders gaan naar cTrader' : 'live trading staat uit (config.toml)'),
     );
   }
 
@@ -173,7 +175,7 @@ export function initRisk() {
     for (const s of d.sessions) {
       const tr = el('tr');
       const name = el('td');
-      const link = el('a', 'link', s.label);
+      const link = el('a', 'link', `${s.mode === 'live' ? 'LIVE · ' : ''}${s.label}`);
       link.href = `#paper?id=${s.id}`;
       name.append(link, el('span', 'cell-sub', `${s.symbol} ${s.timeframe}`));
 
@@ -281,7 +283,10 @@ export function initRisk() {
     }
     els.reconInfo.textContent = `Laatst gecontroleerd om ${fmtClock(new Date(r.checked_at * 1000))} · automatisch elke `
       + `${d.reconcile_minutes} minuten · ${r.differences ? `${r.differences} afwijking${r.differences === 1 ? '' : 'en'}` : 'geen afwijkingen'}`
-      + ` · open posities ${r.open_positions} (maximaal ${d.limits.max_open_positions})${r.open_positions_ok ? '' : ': te veel!'}.`;
+      + ` · open posities paper ${r.open_positions} (maximaal ${d.limits.max_open_positions})${r.open_positions_ok ? '' : ': te veel!'}`
+      + `${r.live_open_positions !== undefined ? `, live ${r.live_open_positions}` : ''}`
+      + `${r.broker_error ? ` · broker niet bereikbaar: ${r.broker_error}` : ''}`
+      + `${r.unknown_positions && r.unknown_positions.length ? ` · ${r.unknown_positions.length} positie(s) bij de broker zonder actieve strategie` : ''}.`;
     const rows = r.sessions.filter((s) => s.status !== 'stopped' || s.differences);
     if (!rows.length) {
       const tr = el('tr');

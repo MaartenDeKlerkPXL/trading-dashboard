@@ -38,6 +38,7 @@ class _Open:
     commission_eur: float
     financing_eur: float = 0.0
     financed_day: int = 0
+    position_id: int | None = None   # the broker's id (live trading only)
 
     @property
     def direction(self) -> int:
@@ -198,7 +199,9 @@ class BacktestExecutor(BrokerExecutor):
                 return
         self._open(req, bar, to_eur)
 
-    def _open(self, req: OrderRequest, bar: Bar, to_eur: float) -> None:
+    def _plan_open(self, req: OrderRequest, bar: Bar, to_eur: float) -> tuple[float, float, float | None] | None:
+        """Fill price, lots and take-profit for an opening order at this bar's open, after every check.
+        Returns None (and logs why) when the order must not be executed."""
         spread, slip = self.costs.spread, self.costs.slippage
         side = req.side
         if side == "long":
@@ -219,7 +222,7 @@ class BacktestExecutor(BrokerExecutor):
                          client_id=req.client_id)
             take_profit = None
 
-        equity = self.balance
+        equity = self.equity_for_sizing()
         risk_fraction = max(0.0, min(req.risk_fraction, 1.0))
         if self.risk and self.sizing.risk_pct * risk_fraction > self.risk.max_risk_per_trade_pct:
             risk_fraction = self.risk.max_risk_per_trade_pct / self.sizing.risk_pct
@@ -244,6 +247,19 @@ class BacktestExecutor(BrokerExecutor):
                          f"de maximale positiegrootte voor {self.instrument.symbol}.", client_id=req.client_id,
                          reason_code="max_lots")
             lots = limit
+        return fill, lots, take_profit
+
+    def equity_for_sizing(self) -> float:
+        return self.balance
+
+    def _open(self, req: OrderRequest, bar: Bar, to_eur: float) -> None:
+        plan = self._plan_open(req, bar, to_eur)
+        if plan is None:
+            return
+        fill, lots, take_profit = plan
+        side = req.side
+        spread, slip = self.costs.spread, self.costs.slippage
+        equity = self.balance
 
         units = self._units(lots)
         commission = self.costs.commission_per_lot * lots

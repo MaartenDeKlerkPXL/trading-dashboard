@@ -3,8 +3,8 @@
 Een lokaal trading dashboard voor backtesten, paper trading en (later) live orders.
 Alles draait op je eigen Mac. Het dashboard open je in de browser op <http://localhost:8000>.
 
-> **Status: fase 5.** Backtesten, optimaliseren, vergelijken, TradingView-import, paper trading (nepgeld, live koersen), harde risicolimieten, kill switch, e-mailmeldingen en reconciliatie.
-> Er worden nog geen echte orders geplaatst.
+> **Status: fase 6.** Backtesten, optimaliseren, vergelijken, TradingView-import, paper trading, harde risicolimieten, kill switch, e-mailmeldingen, reconciliatie en live trading via cTrader.
+> Live trading staat standaard uit. Aanzetten en eerst op demo testen: zie `docs/LIVE_TRADING.md`.
 
 ---
 
@@ -77,9 +77,9 @@ cd ~/Documents/GitHub/trading-dashboard
 ./test.sh
 ```
 
-Het is gelukt als de laatste regel iets zegt als `99 passed`.
+Het is gelukt als de laatste regel iets zegt als `112 passed`.
 
-De tests gebruiken geen internet, plaatsen nooit orders en versturen nooit e-mail.
+De tests gebruiken geen internet, plaatsen nooit orders en versturen nooit e-mail. Live trading wordt getest tegen een nagebouwde cTrader-server.
 
 ---
 
@@ -106,11 +106,12 @@ Draaide het dashboard al? Stop het dan eerst met `Ctrl + C`, haal de update op m
 |---|---|
 | `backend/` | Python-server (FastAPI): data, opslag in SQLite, backtest-engine, API |
 | `backend/strategies/` | De strategieën: elk bestand is één strategie met een versie (bijv. `sma_cross_v1.py`) |
-| `backend/execution/` | De "executors": backtest en paper, live volgt in fase 6 |
+| `backend/execution/` | De "executors": backtest, paper en live |
+| `backend/broker/`, `backend/live/` | De koppeling met cTrader en de live trading-loop |
 | `backend/paper/` | De paper trading-loop, de vergelijking met de backtest en de evaluatiekaarten |
 | `backend/risk.py`, `alerts.py`, `monitor.py`, `reconcile.py` | Harde risicolimieten, e-mailmeldingen, bewaking van de loop en reconciliatie |
-| `frontend/` | Het dashboard: `index.html`, `style.css` en één script per pagina (`script.js`, `backtest.js`, `optimize.js`, `compare.js`, `history.js`, `paper.js`, `risk.js`, gedeeld: `common.js`) |
-| `docs/` | Uitleg: TradingView-strategieën omzetten, cTrader voorbereiden, e-mailmeldingen instellen |
+| `frontend/` | Het dashboard: `index.html`, `style.css` en één script per pagina (`script.js`, `backtest.js`, `optimize.js`, `compare.js`, `history.js`, `paper.js`, `live.js`, `risk.js`, gedeeld: `common.js`) |
+| `docs/` | Uitleg: TradingView-strategieën omzetten, cTrader voorbereiden, live trading, e-mailmeldingen instellen |
 | `tests/` | Automatische tests |
 | `data/` | Je lokale database en logbestanden (niet op GitHub) |
 | `PROJECT.md` | Gemaakte keuzes en de planning per fase |

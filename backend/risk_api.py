@@ -33,13 +33,13 @@ def build_router(settings: Settings) -> APIRouter:
         now = int(time.time())
         today = day_key(now, risk.timezone)
         sessions = []
-        for s in paper.list():
+        for s in request.app.state.live.list() + paper.list():
             if s["status"] not in ACTIVE:
                 continue
             rs = s["risk_state"]
             day_start = rs.get("day_start_equity") if rs.get("day") == today else s["equity"]
             sessions.append({
-                "id": s["id"], "label": f"{s['strategy_label']} {s['version']}", "symbol": s["symbol"],
+                "id": s["id"], "mode": s["mode"], "label": f"{s['strategy_label']} {s['version']}", "symbol": s["symbol"],
                 "timeframe": s["timeframe"], "status": s["status"], "status_label": s["status_label"],
                 "status_reason": s["status_reason"], "equity": s["equity"],
                 "day_start_equity": day_start,
@@ -55,6 +55,7 @@ def build_router(settings: Settings) -> APIRouter:
             "kill_switch": paper.kill_switch(),
             "sessions": sessions,
             "open_positions": paper.open_positions(),
+            "live_open_positions": request.app.state.live.open_positions(),
             "email": {"configured": alerter.email_configured, "to": sender.to if sender else "",
                       "repeat_minutes": settings.alerts.repeat_minutes,
                       "feed_down_minutes": settings.alerts.feed_down_minutes,
@@ -72,11 +73,20 @@ def build_router(settings: Settings) -> APIRouter:
     async def kill(body: KillRequest, request: Request):
         paper, alerter = request.app.state.paper, request.app.state.alerter
         result = await paper.kill(body.close_positions)
+        live = await request.app.state.live.kill(body.close_positions)
+        for key in ("paused", "closed", "cancelled"):
+            result[key] += live[key]
+        result["errors"] = result["errors"] + live["errors"]
         await alerter.raise_(
             "kill_switch", "warning", "Kill switch gebruikt",
             f"Alle strategieën zijn gepauzeerd ({result['paused']}), {result['cancelled']} wachtende order(s) "
             f"geannuleerd en {result['closed']} positie(s) gesloten. Nieuwe sessies starten kan pas weer "
             "als de kill switch is opgeheven.")
+        if live["errors"]:
+            await alerter.raise_(
+                "kill_switch_broker", "urgent", "Kill switch: positie bij de broker niet gesloten",
+                "Niet alle live-posities konden bij de broker gesloten worden: " + "; ".join(live["errors"])
+                + ". De stop-loss staat nog bij de broker. Sluit de positie(s) zo nodig in cTrader.", email=True)
         request.app.state.keep_awake.update(paper.any_running())
         return result
 

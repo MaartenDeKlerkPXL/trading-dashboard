@@ -31,7 +31,11 @@ from .db import connect
 from .compare import build_comparison
 from .importers.tradingview import ImportError_, build_run, parse_trades
 from .alerts import Alerter, EmailSender
+from .broker.oauth import TokenStore
 from .env import load_env
+from .live.api import build_router as live_router
+from .live.engine import LiveEngine
+from .live.link import BrokerLink
 from .monitor import Monitor
 from .paper.api import build_router as paper_router
 from .paper.engine import PaperEngine
@@ -89,8 +93,10 @@ def _validate(symbol: str, timeframe: str, start: str, end: str) -> tuple[int, i
 
 
 def create_app(settings: Settings | None = None, provider: DataProvider | None = None, store_kwargs: dict | None = None,
-               start_loop: bool = True, env: dict | None = None, email_sender: EmailSender | None = None) -> FastAPI:
-    """env: secrets (default: the .env file). email_sender: replaces Gmail, for tests."""
+               start_loop: bool = True, env: dict | None = None, email_sender: EmailSender | None = None,
+               broker_client_factory=None, oauth_transport=None) -> FastAPI:
+    """env: secrets (default: the .env file). email_sender, broker_client_factory and oauth_transport replace
+    Gmail and cTrader in tests."""
     settings = settings or load_settings()
     env = load_env() if env is None else env
 
@@ -106,33 +112,43 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         app.state.keep_awake = KeepAwake(settings.paper.keep_awake)
         app.state.alerter = alerter = Alerter(
             conn, email_sender or EmailSender.from_env(env), settings.alerts.repeat_minutes * 60, settings.app.timezone)
-        app.state.monitor = monitor = Monitor(paper, alerter, settings, env.get("HEARTBEAT_URL", ""))
-        loop_task = None
-        if start_loop and settings.execution.mode == "paper":
+        link = BrokerLink(conn, settings, env, TokenStore(settings.db_path.parent / "ctrader_token.json"),
+                          broker_client_factory, oauth_transport)
+        app.state.live = live = LiveEngine(conn, store, settings, link, alerter)
+        app.state.monitor = monitor = Monitor(paper, alerter, settings, env.get("HEARTBEAT_URL", ""), live=live)
+        tasks: list[asyncio.Task] = []
+        if start_loop and settings.execution.mode in ("paper", "live"):
             await monitor.on_startup()
 
             async def after_tick(result, error):
                 app.state.keep_awake.update(paper.any_running())
                 await monitor.after_tick(result, error)
 
-            def loop_ended(task: asyncio.Task) -> None:
-                if not task.cancelled() and task.exception() is not None:
-                    log.error("Paper loop crashed", exc_info=task.exception())
-                    asyncio.get_running_loop().create_task(alerter.raise_(
-                        "loop_crash", "urgent", "Paper trading-loop is gestopt",
-                        f"De loop is gecrasht en draait niet meer: {task.exception()!r}. "
-                        "Herstart het dashboard (Ctrl+C, daarna ./start.sh).", email=True))
+            def loop_ended(name: str):
+                def callback(task: asyncio.Task) -> None:
+                    if not task.cancelled() and task.exception() is not None:
+                        log.error("%s loop crashed", name, exc_info=task.exception())
+                        asyncio.get_running_loop().create_task(alerter.raise_(
+                            f"loop_crash:{name}", "urgent", f"{name.capitalize()} trading-loop is gestopt",
+                            f"De loop is gecrasht en draait niet meer: {task.exception()!r}. "
+                            "Herstart het dashboard (Ctrl+C, daarna ./start.sh).", email=True))
+                return callback
 
-            loop_task = asyncio.create_task(paper.run_forever(on_tick=after_tick))
-            loop_task.add_done_callback(loop_ended)
+            tasks.append(asyncio.create_task(paper.run_forever(on_tick=after_tick)))
+            tasks[-1].add_done_callback(loop_ended("paper"))
+            if settings.execution.mode == "live":
+                tasks.append(asyncio.create_task(live.run_forever(on_tick=monitor.after_live_tick)))
+                tasks[-1].add_done_callback(loop_ended("live"))
         try:
             yield
         finally:
-            if loop_task:
-                loop_task.cancel()
+            for task in tasks:
+                task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await loop_task
+                    await task
+            if tasks:
                 monitor.on_shutdown()
+            await link.disconnect()
             app.state.keep_awake.stop()
             conn.close()
 
@@ -379,6 +395,7 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
 
     app.include_router(paper_router(settings))
     app.include_router(risk_router(settings))
+    app.include_router(live_router(settings))
 
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="dashboard")
     return app

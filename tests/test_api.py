@@ -56,9 +56,12 @@ def test_sync_then_read(client):
     assert set(first) == {"time", "open", "high", "low", "close", "volume"}
 
 
-def test_live_mode_is_refused(tmp_path):
+def test_execution_modes(tmp_path):
     cfg = tmp_path / "config.toml"
     cfg.write_text('[execution]\nmode = "live"\n')
+    s = load_settings(cfg)
+    assert s.execution.mode == "live" and s.live.allow_real_money is False   # real money stays off by default
+    cfg.write_text('[execution]\nmode = "echt"\n')
     with pytest.raises(ConfigError):
         load_settings(cfg)
     cfg.write_text('[execution]\nmode = "paper"\n[data]\nnope = 1\n')

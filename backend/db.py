@@ -122,6 +122,30 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX alerts_key ON alerts (key, resolved_at);
     """,
+    """
+    ALTER TABLE paper_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper';   -- paper | live
+    ALTER TABLE paper_sessions ADD COLUMN broker TEXT NOT NULL DEFAULT '{}';    -- JSON: account, demo/live
+    CREATE TABLE live_orders (
+        client_order_id TEXT PRIMARY KEY,      -- unique per order: a restart can never send it twice
+        session_id      INTEGER NOT NULL REFERENCES paper_sessions(id) ON DELETE CASCADE,
+        client_id       TEXT NOT NULL,         -- the runner's deterministic id
+        kind            TEXT NOT NULL,         -- open | close
+        side            TEXT,
+        volume          INTEGER,
+        lots            REAL,
+        stop_loss       REAL,
+        take_profit     REAL,
+        reason          TEXT NOT NULL DEFAULT '',
+        status          TEXT NOT NULL,         -- sending | filled | rejected | unknown | expired | skipped
+        position_id     INTEGER,
+        broker_order_id INTEGER,
+        price           REAL,
+        error           TEXT,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+    );
+    CREATE INDEX live_orders_session ON live_orders (session_id, created_at);
+    """,
 ]
 
 

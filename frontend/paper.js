@@ -164,7 +164,7 @@ export function initPaper({ selection, backtest, navigate }) {
       sessions = list;
       renderStatus(status);
       renderCards();
-      if (selectedId && sessions.some((s) => s.id === selectedId)) await loadDetail();
+      if (selectedId) await loadDetail();   // also live sessions, which have their own page
     } catch (err) {
       renderNotice(els.error, [err.message]);
     } finally {
@@ -298,7 +298,8 @@ export function initPaper({ selection, backtest, navigate }) {
 
   function renderDetail(d, cmp) {
     els.detail.hidden = false;
-    els.title.textContent = `${d.strategy_label} ${d.version} · ${d.symbol} ${d.timeframe}`;
+    const where = d.mode === 'live' ? `LIVE (${d.broker && d.broker.is_live ? 'echt geld' : 'demo'}) · ` : '';
+    els.title.textContent = `${where}${d.strategy_label} ${d.version} · ${d.symbol} ${d.timeframe}`;
     els.subtitle.textContent = `Gestart ${fmtTimeShort(d.started_at)} · start ${fmtEur(d.settings.capital)} · `
       + `${fmtNumber(d.settings.risk_pct, 1)}% risico per trade · ${d.settings.sizing_mode === 'realistic' ? 'hele lots' : 'exacte lotgrootte'} · ${fmtParams(d.params)}`;
     renderNotice(els.blocked, d.status === 'blocked' ? [`Geblokkeerd: ${d.status_reason}. Start een nieuwe sessie met een nieuwe versie.`] : []);

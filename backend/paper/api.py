@@ -47,6 +47,10 @@ def build_router(settings: Settings) -> APIRouter:
     def engine(request: Request) -> PaperEngine:
         return request.app.state.paper
 
+    def engine_for(request: Request, row) -> PaperEngine:
+        """Live sessions are handled by the live engine (orders at the broker), paper sessions by the paper engine."""
+        return request.app.state.live if row["mode"] == "live" else request.app.state.paper
+
     def session_row(request: Request, session_id: int):
         row = engine(request).row(session_id)
         if row is None:
@@ -114,7 +118,7 @@ def build_router(settings: Settings) -> APIRouter:
 
     @router.post("/sessions/{session_id}/{action}")
     async def change(session_id: int, action: str, request: Request):
-        eng = engine(request)
+        eng = engine_for(request, session_row(request, session_id))
         async with eng.lock:   # never change a session in the middle of a loop round
             row = session_row(request, session_id)
             current = row["status"]
@@ -128,7 +132,11 @@ def build_router(settings: Settings) -> APIRouter:
                 eng.set_status(session_id, "running")
             elif action == "stop" and current in ("running", "paused", "blocked"):
                 # A stopped session is never processed again: close its position and cancel its orders.
-                await eng.flatten(row, "sessie gestopt")
+                try:
+                    await eng.flatten(row, "sessie gestopt")
+                except Exception as exc:
+                    raise HTTPException(502, f"Positie sluiten bij de broker mislukt: {exc}. De sessie draait nog; "
+                                             "probeer het opnieuw of sluit de positie in cTrader.") from None
                 eng.set_status(session_id, "stopped")
             else:
                 raise HTTPException(400, f"Dat kan niet: de sessie is {STATUS_LABELS[current]}.")
@@ -145,7 +153,7 @@ def build_router(settings: Settings) -> APIRouter:
     @router.get("/sessions/{session_id}")
     async def detail(session_id: int, request: Request):
         row = session_row(request, session_id)
-        eng = engine(request)
+        eng = engine_for(request, row)
         summary = eng.summary(row)
         capital = summary["settings"]["capital"]
         equity = dict([(summary["started_at"] - summary["started_at"] % 900, capital)] + eng.equity(session_id))
@@ -160,7 +168,7 @@ def build_router(settings: Settings) -> APIRouter:
 
     async def _comparison(request: Request, session_id: int) -> dict:
         row = session_row(request, session_id)
-        eng = engine(request)
+        eng = engine_for(request, row)
         cfg = eng.config(row)
         cls = strategy_class(cfg.strategy)
         state = json.loads(row["state"])

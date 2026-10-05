@@ -1,4 +1,6 @@
-# cTrader voorbereiden (voor fase 6)
+# cTrader voorbereiden
+
+> Daarna verder met `docs/LIVE_TRADING.md`.
 
 Voor echte orders, en later ook voor koersen rechtstreeks van BlackBull, praat het dashboard met BlackBull via de **cTrader Open API**. Daarvoor heb je twee dingen nodig. Je kunt ze nu al regelen, want de goedkeuring van de app kan een paar dagen duren.
 
@@ -22,5 +24,5 @@ Bronnen: [cTrader Help – App and account authentication](https://help.ctrader.
 
 ## Belangrijk
 
-- Stuur de **Client ID** en **Secret** nooit in de chat en zet ze nergens anders neer dan in het bestand `.env`. In fase 6 leg ik precies uit hoe.
+- Stuur de **Client ID** en **Secret** nooit in de chat en zet ze nergens anders neer dan in het bestand `.env`. Hoe dat gaat, staat in `docs/LIVE_TRADING.md`.
 - Bij de koppeling vraagt cTrader welke rechten de app krijgt. Geef alleen **trading**-rechten. Opnemen of overboeken van geld kan via deze API sowieso niet.

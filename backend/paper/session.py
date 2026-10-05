@@ -56,6 +56,7 @@ class AdvanceResult:
     events: list[dict] = field(default_factory=list)
     trades: list[dict] = field(default_factory=list)
     equity: list[tuple[int, float]] = field(default_factory=list)
+    outbox: list[dict] = field(default_factory=list)   # live trading: orders for the broker
 
 
 def data_start(started_at: int, warmup: int, tf_seconds: int) -> int:
@@ -93,12 +94,13 @@ def advance(
     offline_after: int = OFFLINE_AFTER,
     risk: RiskLimits | None = None,
     open_elsewhere: int = 0,
+    executor_cls=PaperExecutor,
 ) -> AdvanceResult:
     """risk: hard limits enforced by the executor. open_elsewhere: positions open in other sessions."""
     state = dict(state)
     tf = cfg.tf_seconds
     log = EventLog()
-    executor = PaperExecutor(
+    executor = executor_cls(
         instrument,
         CostModel(**cfg.costs),
         SizingRules(cfg.risk_pct, cfg.sizing_mode, cfg.leverage),
@@ -153,6 +155,8 @@ def advance(
     if cur is not None and now >= cur + tf + GRACE:
         close_bar(cur)
     state["cur_bucket"] = cur
+    if hasattr(executor, "finish") and complete:
+        executor.finish(Bar(*complete[-1]), rates.to_eur(complete[-1].ts))
 
     trades = executor.trades
     for t in trades:
@@ -163,4 +167,4 @@ def advance(
 
     state["account"] = executor.to_state()
     state["last_tick_at"] = now
-    return AdvanceResult(state, log.events, trades, sorted(windows.items()))
+    return AdvanceResult(state, log.events, trades, sorted(windows.items()), getattr(executor, "outbox", []))

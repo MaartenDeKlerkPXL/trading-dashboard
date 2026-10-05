@@ -50,6 +50,13 @@ class PaperSettings:
 
 
 @dataclass(frozen=True)
+class LiveSettings:
+    allow_real_money: bool = False      # demo accounts only, unless this is true
+    max_capital: float = 1000.0         # most EUR one live strategy may use
+    redirect_url: str = "http://localhost:8000/ctrader/callback"   # as registered at openapi.ctrader.com
+
+
+@dataclass(frozen=True)
 class AlertSettings:
     feed_down_minutes: int = 15          # e-mail when prices/broker are unreachable this long
     repeat_minutes: int = 60             # at most one e-mail per problem per this many minutes
@@ -67,6 +74,7 @@ class Settings:
     paper: PaperSettings = field(default_factory=PaperSettings)
     risk: RiskLimits = field(default_factory=RiskLimits)
     alerts: AlertSettings = field(default_factory=AlertSettings)
+    live: LiveSettings = field(default_factory=LiveSettings)
     db_path: Path = DATA_DIR / "trading.sqlite"
 
 
@@ -97,6 +105,7 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
         paper=_section(raw, "paper", PaperSettings),
         risk=_section(raw, "risk", RiskLimits),
         alerts=_section(raw, "alerts", AlertSettings),
+        live=_section(raw, "live", LiveSettings),
     )
     from .data.instruments import INSTRUMENTS
 
@@ -125,7 +134,6 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
         )
     if not 10 <= settings.paper.poll_seconds <= 600:
         raise ConfigError("paper.poll_seconds moet tussen 10 en 600 liggen.")
-    if settings.execution.mode == "live":
-        # Live trading is only built in phase 6; refuse to start rather than guess.
-        raise ConfigError("Live-modus bestaat nog niet (komt in fase 6). Zet execution.mode op 'paper'.")
+    if not 10 <= settings.live.max_capital <= 1_000_000:
+        raise ConfigError("live.max_capital moet tussen 10 en 1.000.000 liggen.")
     return settings

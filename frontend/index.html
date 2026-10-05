@@ -37,6 +37,7 @@
         <li><a class="sidenav__link" href="#vergelijken" data-view="vergelijken">Vergelijken</a></li>
         <li><a class="sidenav__link" href="#historie" data-view="historie">Historie</a></li>
         <li><a class="sidenav__link" href="#paper" data-view="paper">Paper trading</a></li>
+        <li><a class="sidenav__link" href="#live" data-view="live">Live <span class="mode-dot" id="navLive" hidden></span></a></li>
         <li><a class="sidenav__link" href="#risico" data-view="risico">Risico &amp; alerts <span class="nav-badge" id="navAlerts" hidden></span></a></li>
       </ul>
     </nav>
@@ -654,6 +655,139 @@
               </table>
             </div>
           </section>
+        </section>
+      </div>
+
+      <div class="view" id="view-live" hidden>
+        <div class="notice live-off" id="lvOff" hidden>
+          <p class="notice__item">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3L12 3zm0 6v4m0 3v.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Live trading staat uit. Je kunt hieronder al koppelen en een account kiezen. Orders plaatsen kan pas als in <code>config.toml</code> staat <code>mode = "live"</code> (onder <code>[execution]</code>) en je het dashboard herstart.</span>
+          </p>
+        </div>
+        <div class="notice notice--calm">
+          <p class="notice__item">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3L12 3zm0 6v4m0 3v.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Live-strategieën handelen alleen zolang deze Mac aan staat en het Terminal-venster open is. De stop-loss van elke positie staat wel altijd bij de broker, ook als het dashboard uit staat. Test eerst op een demo-account. <span id="lvMoney"></span></span>
+          </p>
+        </div>
+        <div class="notice" id="lvError" role="alert" hidden></div>
+
+        <section class="panel">
+          <header class="panel__head">
+            <h1 class="panel__title">Koppeling met cTrader</h1>
+            <p class="panel__hint">BlackBull Markets via de cTrader Open API. Stappen staan in docs/LIVE_TRADING.md.</p>
+          </header>
+          <ol class="steps" id="lvSteps">
+            <li class="step" id="lvStep1">
+              <span class="step__mark" aria-hidden="true"></span>
+              <div class="step__body">
+                <p class="step__title">App-sleutels in <code>.env</code></p>
+                <p class="step__text" id="lvStep1Text"></p>
+              </div>
+            </li>
+            <li class="step" id="lvStep2">
+              <span class="step__mark" aria-hidden="true"></span>
+              <div class="step__body">
+                <p class="step__title">Koppelen met je cTrader ID</p>
+                <p class="step__text" id="lvStep2Text"></p>
+              </div>
+              <div class="step__actions">
+                <a class="btn btn--small btn--primary" href="/ctrader/connect" id="lvConnect">Koppelen met cTrader</a>
+                <button class="btn btn--small btn--danger-ghost" type="button" id="lvForget">Koppeling verwijderen</button>
+              </div>
+            </li>
+            <li class="step" id="lvStep3">
+              <span class="step__mark" aria-hidden="true"></span>
+              <div class="step__body">
+                <p class="step__title">Account kiezen</p>
+                <p class="step__text" id="lvStep3Text"></p>
+              </div>
+              <div class="step__actions">
+                <select id="lvAccounts" aria-label="cTrader-account"></select>
+                <button class="btn btn--small btn--ghost" type="button" id="lvChoose">Kiezen</button>
+                <button class="btn btn--small btn--ghost" type="button" id="lvFetch">Accounts ophalen</button>
+              </div>
+            </li>
+          </ol>
+          <div class="account" id="lvAccount" hidden></div>
+        </section>
+
+        <section class="panel" id="lvSymbolsPanel" hidden>
+          <header class="panel__head">
+            <h2 class="panel__title">Instrumenten bij de broker</h2>
+            <p class="panel__hint">Hoe onze instrumenten heten bij de broker, en of de lotgrootte overeenkomt.</p>
+          </header>
+          <div class="table-wrap table-wrap--plain">
+            <table class="table" id="lvSymbols">
+              <thead><tr><th scope="col">Instrument</th><th scope="col">Bij de broker</th><th scope="col" class="num">1 lot</th><th scope="col" class="num">Kleinste positie</th><th scope="col">Klopt</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" id="lvTestPanel" hidden>
+          <header class="panel__head panel__head--row">
+            <div>
+              <h2 class="panel__title">Testorder (alleen demo)</h2>
+              <p class="panel__hint">Koopt de kleinste positie goud met een stop-loss van 10 dollar, controleert of de stop-loss bij de broker staat en sluit de positie meteen weer. Zo weet je zeker dat alles werkt.</p>
+            </div>
+            <button class="btn btn--small btn--ghost" type="button" id="lvTest">Testorder plaatsen</button>
+          </header>
+          <ul class="test-steps" id="lvTestSteps"></ul>
+        </section>
+
+        <section class="panel" id="lvStartPanel" hidden>
+          <header class="panel__head">
+            <h2 class="panel__title">Live-strategie starten</h2>
+            <p class="panel__hint">Kies een paper-strategie die je goed genoeg vindt. Strategie, versie, instelling, instrument en timeframe worden overgenomen. Live gebruikt altijd hele lots (0,01).</p>
+          </header>
+          <form class="live-form" id="lvForm" autocomplete="off" novalidate>
+            <div class="live-form__fields">
+              <div class="field field--wide">
+                <label for="lvTemplate">Paper-strategie als voorbeeld</label>
+                <select id="lvTemplate"></select>
+              </div>
+              <div class="field">
+                <label for="lvCapital">Kapitaal voor deze strategie (€)</label>
+                <input type="number" id="lvCapital" min="10" step="10" inputmode="decimal">
+              </div>
+              <div class="field">
+                <label for="lvRisk">Risico per trade (%)</label>
+                <input type="number" id="lvRisk" min="0.1" max="2" step="0.1" inputmode="decimal">
+              </div>
+            </div>
+            <button class="btn btn--ghost" type="submit" id="lvCheck">Controleren</button>
+          </form>
+          <div class="confirm" id="lvConfirm" hidden>
+            <p class="confirm__title" id="lvConfirmTitle"></p>
+            <dl class="confirm__list" id="lvConfirmList"></dl>
+            <p class="hint">Typ de drie bedragen hieronder exact over. Zo weet je zeker wat er op het spel staat.</p>
+            <div class="confirm__inputs">
+              <div class="field"><label for="lvTypeCapital">Kapitaal</label><input id="lvTypeCapital" inputmode="decimal" autocomplete="off"></div>
+              <div class="field"><label for="lvTypeRisk">Risico per trade</label><input id="lvTypeRisk" inputmode="decimal" autocomplete="off"></div>
+              <div class="field"><label for="lvTypeLoss">Max verlies per dag</label><input id="lvTypeLoss" inputmode="decimal" autocomplete="off"></div>
+            </div>
+            <div class="btn-row">
+              <button class="btn btn--danger" type="button" id="lvStart" disabled>Live starten</button>
+              <button class="btn btn--ghost" type="button" id="lvCancel">Annuleren</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="pp-cards" id="lvCards" aria-label="Live-strategieën"></section>
+
+        <section class="panel">
+          <header class="panel__head">
+            <h2 class="panel__title">Orders bij de broker</h2>
+            <p class="panel__hint">Elke order krijgt een uniek nummer dat eerst wordt opgeslagen en pas daarna verstuurd. Een herstart kan een order daardoor nooit twee keer plaatsen.</p>
+          </header>
+          <div class="table-wrap">
+            <table class="table" id="lvOrders">
+              <thead><tr><th scope="col">Tijd</th><th scope="col">Sessie</th><th scope="col">Order</th><th scope="col" class="num">Lots</th><th scope="col" class="num">Prijs</th><th scope="col">Status</th><th scope="col">Toelichting</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </section>
       </div>
 

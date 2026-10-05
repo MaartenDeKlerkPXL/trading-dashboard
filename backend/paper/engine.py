@@ -34,6 +34,8 @@ class KillSwitchActive(Exception):
 
 
 class PaperEngine:
+    MODE = "paper"
+
     def __init__(self, conn: sqlite3.Connection, store: CandleStore, settings: Settings, now=time.time):
         self.conn = conn
         self.store = store
@@ -66,16 +68,22 @@ class PaperEngine:
             now = int(self.now())
             set_state(self.conn, "kill_switch", {"active": True, "since": now, "close_positions": close_positions})
             paused = closed = cancelled = 0
+            errors = []
             for row in self.conn.execute(
-                    "SELECT * FROM paper_sessions WHERE status IN (?,?,?)", ACTIVE).fetchall():
-                result = await self.flatten(row, "kill switch", close=close_positions)
+                    "SELECT * FROM paper_sessions WHERE status IN (?,?,?) AND mode=?", (*ACTIVE, self.MODE)).fetchall():
+                if row["status"] == "running":
+                    self.set_status(row["id"], "paused", "kill switch")   # first stop deciding, then clean up
+                    paused += 1
+                try:
+                    result = await self.flatten(row, "kill switch", close=close_positions)
+                except Exception as exc:  # a broker problem must not stop the kill switch for the others
+                    log.exception("Kill switch: session %s could not be flattened", row["id"])
+                    errors.append(f"sessie {row['id']}: {exc}")
+                    continue
                 closed += result["closed"]
                 cancelled += result["cancelled"]
-                if row["status"] == "running":
-                    self.set_status(row["id"], "paused", "kill switch")
-                    paused += 1
             log.warning("Kill switch: %s paused, %s closed, %s cancelled", paused, closed, cancelled)
-            return {"paused": paused, "closed": closed, "cancelled": cancelled, "since": now}
+            return {"paused": paused, "closed": closed, "cancelled": cancelled, "since": now, "errors": errors}
 
     def release(self) -> None:
         state = self.kill_switch()
@@ -123,14 +131,15 @@ class PaperEngine:
     def open_positions(self, exclude: int | None = None) -> int:
         """Open positions over all sessions that can still hold one (they count towards one limit)."""
         n = 0
-        for row in self.conn.execute("SELECT id, state FROM paper_sessions WHERE status IN (?,?,?)", ACTIVE):
+        for row in self.conn.execute("SELECT id, state FROM paper_sessions WHERE status IN (?,?,?) AND mode=?",
+                                     (*ACTIVE, self.MODE)):
             if row["id"] != exclude and ((json.loads(row["state"]).get("account") or {}).get("position")):
                 n += 1
         return n
 
     # ---------- sessions ----------
 
-    def create(self, cfg: dict) -> int:
+    def create(self, cfg: dict, broker: dict | None = None) -> int:
         """cfg: symbol, timeframe, strategy, params (validated), capital, risk_pct, sizing_mode, leverage, costs."""
         self.ensure_trading_allowed()
         cls = load_strategies()[cfg["strategy"]]
@@ -139,13 +148,17 @@ class PaperEngine:
         with self.conn:
             cur = self.conn.execute(
                 "INSERT INTO paper_sessions (created_at, updated_at, status, symbol, timeframe, strategy, version, "
-                "code_hash, params, settings, state) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "code_hash, params, settings, state, mode, broker) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (now, now, "running", cfg["symbol"], cfg["timeframe"], cls.key(), cls.version, code_hash(cls),
-                 json.dumps(cfg["params"]), json.dumps(settings), json.dumps(new_state(now))),
+                 json.dumps(cfg["params"]), json.dumps(settings), json.dumps(new_state(now)), self.MODE,
+                 json.dumps(broker or {})),
             )
             session_id = int(cur.lastrowid)
+            where = "Paper trading" if self.MODE == "paper" else (
+                f"Live trading ({'ECHT GELD' if (broker or {}).get('is_live') else 'demo'}-account "
+                f"{(broker or {}).get('login', '')})")
             self._event(session_id, now, "info",
-                        f"Paper trading gestart: {cls.label} {cls.version} op {cfg['symbol']} {cfg['timeframe']}, "
+                        f"{where} gestart: {cls.label} {cls.version} op {cfg['symbol']} {cfg['timeframe']}, "
                         f"startkapitaal €{cfg['capital']:.2f}. Deze versie is vastgezet.", {})
         return session_id
 
@@ -181,6 +194,8 @@ class PaperEngine:
         position = account.get("position")
         return {
             "id": row["id"],
+            "mode": row["mode"],
+            "broker": json.loads(row["broker"] or "{}"),
             "status": row["status"],
             "status_label": STATUS_LABELS[row["status"]],
             "status_reason": row["status_reason"],
@@ -207,7 +222,7 @@ class PaperEngine:
         }
 
     def list(self) -> list[dict]:
-        rows = self.conn.execute("SELECT * FROM paper_sessions ORDER BY id DESC").fetchall()
+        rows = self.conn.execute("SELECT * FROM paper_sessions WHERE mode=? ORDER BY id DESC", (self.MODE,)).fetchall()
         return [self.summary(r) for r in rows]
 
     def trades(self, session_id: int) -> list[dict]:
@@ -262,7 +277,8 @@ class PaperEngine:
 
     async def _tick(self) -> dict:
         now = int(self.now())
-        rows = self.conn.execute("SELECT * FROM paper_sessions WHERE status='running' ORDER BY id").fetchall()
+        rows = self.conn.execute("SELECT * FROM paper_sessions WHERE status='running' AND mode=? ORDER BY id",
+                                 (self.MODE,)).fetchall()
         if not rows or self.kill_switch().get("active"):
             self.status["last_error"] = None
             self.status["errors_in_a_row"] = 0

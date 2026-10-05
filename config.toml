@@ -13,10 +13,17 @@ leverage = 100
 risk_per_trade_pct = 2.0
 
 [execution]
-# backtest | paper | live
-# "live" is refused until phase 6 and will always require an extra
-# confirmation in the dashboard. Keep this on "paper" unless you are sure.
+# paper | live
+# "paper": only paper trading, no orders at the broker.
+# "live":  paper trading plus live strategies at cTrader. Every live strategy also needs
+#          a confirmation in the dashboard in which you type the amounts.
 mode = "paper"
+
+[live]
+# Real-money accounts are refused unless this is true. Demo accounts are always allowed.
+allow_real_money = false
+max_capital = 1000             # most EUR a single live strategy may use
+redirect_url = "http://localhost:8000/ctrader/callback"   # exactly as registered at openapi.ctrader.com
 
 [data]
 # Phase 1 uses Dukascopy (free, no account). BlackBull (cTrader) follows later.
@@ -52,4 +59,4 @@ feed_down_minutes = 15          # prices/broker unreachable this long
 repeat_minutes = 60             # at most one e-mail per problem per hour
 loop_errors = 3                 # the loop failed this many rounds in a row
 reconcile_minutes = 5           # how often the bookkeeping is reconciled
-email_on_reconciliation = false # e-mail when the reconciliation finds a difference
+email_on_reconciliation = true  # e-mail when the reconciliation finds a difference
