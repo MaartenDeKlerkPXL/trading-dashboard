@@ -77,7 +77,7 @@ cd ~/Documents/GitHub/trading-dashboard
 ./test.sh
 ```
 
-Het is gelukt als de laatste regel iets zegt als `126 passed`.
+Het is gelukt als de laatste regel iets zegt als `149 passed`.
 
 De tests gebruiken geen internet, plaatsen nooit orders en versturen nooit e-mail. Live trading wordt getest tegen een nagebouwde cTrader-server.
 

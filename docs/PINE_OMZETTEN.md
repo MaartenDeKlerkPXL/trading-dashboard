@@ -15,6 +15,7 @@ Een strategie aanpassen die al in paper of live draait, kan niet: dan wordt er e
 Voorbeelden van omgezette TradingView-strategieën:
 - `rsi_reversal_v1.py`, uit de Pine-code van TradingView's klassieke "RSI Strategy";
 - `bjorgum_3commas_v1.py`, nagebouwd uit de beschrijving van Bjorgums "3Commas Bot". De Pine-code kon niet worden gelezen, dus de standaardwaarden zijn een schatting.
+- `bjorgum_3commas_v2.py`, regel voor regel omgezet uit de Pine-code van dezelfde "3Commas Bot". De tests vergelijken hem trade voor trade met een letterlijke nabootsing van het Pine-script, bij negen verschillende instellingen.
 
 # TradingView-strategieën gebruiken
 
