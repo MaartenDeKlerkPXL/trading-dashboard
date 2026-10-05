@@ -39,6 +39,7 @@ class _Open:
     financing_eur: float = 0.0
     financed_day: int = 0
     position_id: int | None = None   # the broker's id (live trading only)
+    initial_stop: float | None = None  # the stop-loss at entry (a trailing stop moves stop_loss)
 
     @property
     def direction(self) -> int:
@@ -313,6 +314,7 @@ class BacktestExecutor(BrokerExecutor):
             slippage_eur=slip * units * to_eur,
             commission_eur=commission,
             financed_day=bar.ts // DAY,
+            initial_stop=req.stop_loss,
         )
         self.log.add(
             bar.ts, "fill",
@@ -411,6 +413,7 @@ class BacktestExecutor(BrokerExecutor):
             "exit_ts": ts,
             "exit_price": price,
             "stop_loss": p.stop_loss,
+            "initial_stop": p.initial_stop if p.initial_stop is not None else p.stop_loss,
             "take_profit": p.take_profit,
             "entry_reason": p.reason,
             "exit_reason": reason,

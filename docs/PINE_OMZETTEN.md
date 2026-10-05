@@ -10,6 +10,21 @@ Er zijn drie manieren om een strategie aan het dashboard toe te voegen.
 
 Na A of B maak ik een nieuw bestand in `backend/strategies/` met tests. Jij haalt het op met `git pull` en herstart het dashboard. De strategie staat dan in de keuzelijst bij Backtest, Optimaliseren, Paper trading en (via een paper-strategie) Live.
 
+## Een strategie laten verbeteren
+
+1. Draai een backtest. Kies een lange periode met minstens 100 trades, en zet out-of-sample aan (30%).
+2. Klik bij het resultaat op **Analyse-rapport downloaden**. Dezelfde knop staat ook in **Historie** (knop **Rapport**).
+3. Sleep het bestand in de chat met Claude en vraag: *"Analyseer deze backtest en maak een betere versie."*
+
+Het rapport bevat onder meer:
+- alle instellingen en kerncijfers;
+- de resultaten per richting, uitstapreden, uur, weekdag en maand;
+- hoe ver trades mee- en tegenliepen (MFE/MAE): dat zegt veel over waar stop-loss en koersdoel beter kunnen;
+- de resultaten in rustige tegenover drukke markten, en met of tegen de trend;
+- alle trades als CSV.
+
+Een verbetering wordt altijd een nieuwe versie (bijvoorbeeld `_v3`). Die test je daarna op dezelfde periode, en ook op een periode die bij het verbeteren niet is gebruikt.
+
 Een strategie aanpassen die al in paper of live draait, kan niet: dan wordt er een nieuwe versie gemaakt (`_v2`). De oude versie blijft ongewijzigd, zodat je resultaten nooit ongemerkt veranderen.
 
 Voorbeelden van omgezette TradingView-strategieën:

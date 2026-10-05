@@ -366,6 +366,7 @@ class LiveEngine(PaperEngine):
             spread_eur=0.0, slippage_eur=0.0, commission_eur=abs(broker_pos["commission"]),
             financing_eur=-broker_pos["swap"], financed_day=broker_pos["open_ts"] // DAY,
             position_id=broker_pos["position_id"],
+            initial_stop=(order["stop_loss"] if order and order["stop_loss"] is not None else stop),
         ))
 
     async def _protect(self, cfg, broker_pos, position, client, account, now) -> None:
@@ -423,6 +424,7 @@ class LiveEngine(PaperEngine):
             "id": trade_id, "side": known["side"], "lots": known["lots"], "entry_ts": known["entry_ts"],
             "entry_price": known["entry_price"], "exit_ts": exit_ts, "exit_price": exit_price,
             "stop_loss": known.get("stop_loss"), "take_profit": known.get("take_profit"),
+            "initial_stop": known.get("initial_stop") or known.get("stop_loss"),
             "entry_reason": known.get("reason", ""), "exit_reason": reason, "pnl": pnl,
             "return_pct": pnl / known["equity_at_entry"] * 100 if known.get("equity_at_entry") else 0.0,
             "r_multiple": pnl / known["initial_risk_eur"] if known.get("initial_risk_eur") else 0.0,

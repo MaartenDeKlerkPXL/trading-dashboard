@@ -461,6 +461,9 @@ body[data-view="historie"] #toolbar, body[data-view="risico"] #toolbar, body[dat
 /* ---------- Phase 3: shared bits ---------- */
 .link { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(212, 173, 92, 0.4); }
 .link:hover { text-decoration-color: var(--accent); }
+.bt-head__actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-2); }
+.bt-head__actions[hidden] { display: none; }
+.bt-head__actions .hint { margin: 0; }
 .bt-head__meta { margin: var(--space-1) 0 0; font-size: var(--text-sm); color: var(--text-faint); display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
 .badge {
   display: inline-block; margin-left: var(--space-2);

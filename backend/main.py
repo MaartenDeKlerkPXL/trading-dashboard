@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -19,6 +19,8 @@ from starlette.concurrency import run_in_threadpool
 from . import __version__
 from .config import FRONTEND_DIR, Settings, load_settings
 from .backtest.optimize import build_axes, optimize
+from .backtest.report import build_report, report_filename
+from .strategies.base import Bar
 from .backtest.service import (
     BacktestRequest, CommonSettings, SetupError, make_strategy, out_of_sample, prepare, run_segment,
     settings_dict, strategy_class, validate_period,
@@ -380,6 +382,25 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
             raise HTTPException(404, f"Run {run_id} bestaat niet (meer).")
         run["run_id"] = run["id"]
         return _flag_changed(run, _current_hashes())
+
+    @app.get("/api/runs/{run_id}/report")
+    async def run_report(run_id: int, request: Request):
+        """The analysis report of a run as a Markdown file to download."""
+        run = request.app.state.runs.get(run_id)
+        if run is None:
+            raise HTTPException(404, f"Run {run_id} bestaat niet (meer).")
+        run = _flag_changed(run, _current_hashes())
+        s = run["settings"]
+        bars = None
+        try:
+            start_ts, end_ts = validate_period(s["symbol"], s["timeframe"], s["start"], s["end"])
+            bars = [Bar(*c) for c in request.app.state.store.read(s["symbol"], s["timeframe"], start_ts, end_ts)]
+        except (SetupError, KeyError, TypeError):
+            pass   # without candles the report simply leaves out the sections that need them
+        text = await run_in_threadpool(build_report, run, bars, settings.app.timezone, run["strategy_changed"])
+        name = report_filename(run)
+        return Response(text, media_type="text/markdown; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.patch("/api/runs/{run_id}")
     async def update_run(run_id: int, body: RunUpdate, request: Request):

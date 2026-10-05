@@ -45,6 +45,8 @@ export async function initBacktest({ selection, setBusy }) {
     logBody: document.querySelector('#btLog tbody'),
     oosPct: $('btOos'),
     runInfo: $('btRunInfo'),
+    reportBox: $('btReportBox'),
+    report: $('btReport'),
     oos: $('btOosPanel'),
     oosHint: $('btOosHint'),
     oosBody: document.querySelector('#btOosTable tbody'),
@@ -368,7 +370,9 @@ export async function initBacktest({ selection, setBusy }) {
 
   function renderRunInfo(result) {
     els.runInfo.innerHTML = '';
+    els.reportBox.hidden = !result.run_id;
     if (!result.run_id) return;
+    els.report.href = `/api/runs/${result.run_id}/report`;
     const when = result.created_at ? ` op ${fmtTimeShort(result.created_at)}` : '';
     els.runInfo.append(`Opgeslagen als run #${result.run_id}${when}. `);
     const link = el('a', 'link', 'Bekijk alle runs in Historie');

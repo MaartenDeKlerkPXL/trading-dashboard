@@ -119,6 +119,10 @@ export function initHistory({ backtest, navigate }) {
     const open = el('button', 'btn btn--small btn--ghost', 'Openen');
     open.type = 'button';
     open.addEventListener('click', () => navigate('backtest', { run: run.id }));
+    const report = el('a', 'btn btn--small btn--ghost', 'Rapport');
+    report.href = `/api/runs/${run.id}/report`;
+    report.setAttribute('download', '');
+    report.title = 'Analyse-rapport downloaden (Markdown)';
     const del = el('button', 'btn btn--small btn--danger-ghost', 'Verwijderen');
     del.type = 'button';
     let armed = null;
@@ -140,7 +144,7 @@ export function initHistory({ backtest, navigate }) {
         showToast(err.message);
       }
     });
-    actionBox.append(open, del);
+    actionBox.append(open, report, del);
     actions.append(actionBox);
 
     tr.append(
