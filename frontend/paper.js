@@ -75,13 +75,22 @@ export function initPaper({ selection, backtest, navigate }) {
     for (const p of strat.params) {
       const id = `ppParam-${p.name}`;
       const field = el('div', p.type === 'bool' ? 'field field--check field--wide' : 'field');
-      const input = el('input');
+      const input = el(p.type === 'choice' ? 'select' : 'input');
       input.id = id;
       input.dataset.param = p.name;
       const label = el('label', '', p.label);
       label.htmlFor = id;
       const value = saved[p.name] ?? p.default;
-      if (p.type === 'bool') {
+      if (p.type === 'choice') {
+        for (const option of p.choices) {
+          const opt = document.createElement('option');
+          opt.value = option;
+          opt.textContent = option;
+          input.append(opt);
+        }
+        input.value = p.choices.includes(value) ? value : p.default;
+        field.append(label, input);
+      } else if (p.type === 'bool') {
         input.type = 'checkbox';
         input.checked = Boolean(value);
         field.append(input, label);
@@ -110,6 +119,7 @@ export function initPaper({ selection, backtest, navigate }) {
     for (const input of els.params.querySelectorAll('[data-param]')) {
       const p = strat.params.find((x) => x.name === input.dataset.param);
       if (p.type === 'bool') params[p.name] = input.checked;
+      else if (p.type === 'choice') params[p.name] = input.value;
       else {
         const v = Number(String(input.value).replace(',', '.'));
         if (input.value === '' || !Number.isFinite(v)) throw new Error(`Vul een getal in bij "${p.label}".`);

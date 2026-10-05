@@ -32,6 +32,18 @@ class LiveExecutor(BacktestExecutor):
         return any(o["kind"] == kind for o in self.outbox)
 
     def _execute(self, req: OrderRequest, bar: Bar, to_eur: float) -> None:
+        if req.kind == "modify":
+            if self._check_modify(req, bar.ts):
+                self.outbox = [o for o in self.outbox if o["kind"] != "modify"]   # only the latest counts
+                self.outbox.append({"kind": "modify", "client_id": req.client_id, "stop_loss": req.stop_loss,
+                                    "take_profit": req.take_profit, "reason": req.reason, "ts": bar.ts,
+                                    "position_id": getattr(self.pos, "position_id", None)})
+                # Mirror it locally so later decisions in this round see the new level.
+                if req.stop_loss is not None:
+                    self.pos.stop_loss = req.stop_loss
+                if req.take_profit is not None:
+                    self.pos.take_profit = req.take_profit
+            return
         if req.kind == "close":
             if self.pos is None:
                 self.log.add(bar.ts, "info", "Sluitorder genegeerd: er is geen open positie.", client_id=req.client_id)

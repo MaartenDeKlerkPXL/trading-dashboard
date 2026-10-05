@@ -109,7 +109,8 @@ export function el(tag, className, text) {
 }
 
 export const fmtParams = (params) => Object.entries(params || {})
-  .map(([k, v]) => `${k} ${typeof v === 'boolean' ? (v ? 'ja' : 'nee') : fmtNumber(v, Number.isInteger(v) ? 0 : 2)}`)
+  .map(([k, v]) => `${k} ${typeof v === 'boolean' ? (v ? 'ja' : 'nee')
+    : typeof v === 'string' ? v : fmtNumber(v, Number.isInteger(v) ? 0 : 2)}`)
   .join(', ');
 
 /* ---------- Dates (inputs hold calendar days, interpreted as UTC by the server) ---------- */

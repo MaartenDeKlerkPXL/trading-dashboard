@@ -250,13 +250,18 @@ class LiveEngine(PaperEngine):
             self.conn.execute("UPDATE paper_sessions SET state=?, updated_at=? WHERE id=?",
                               (json.dumps(result.state), now, cfg.id))
         stale_after = max(180, 3 * self.settings.paper.poll_seconds)
-        for intent in sorted(result.outbox, key=lambda o: o["kind"] != "close"):
+        order = {"close": 0, "modify": 1, "open": 2}
+        closing = any(o["kind"] == "close" for o in result.outbox)
+        for intent in sorted(result.outbox, key=lambda o: order[o["kind"]]):
             if now - intent["ts"] > stale_after + 60:
                 self._log(cfg.id, now, "skip", "Order niet verstuurd: de beslissing is te oud (het dashboard liep "
                           "achter).", client_id=intent["client_id"])
                 continue
             if intent["kind"] == "close":
                 await self._send_close(cfg, result.state, intent, client, account, snapshot)
+            elif intent["kind"] == "modify":
+                if not closing:
+                    await self._send_modify(cfg, result.state, intent, client, account, snapshot)
             else:
                 await self._send_open(cfg, intent, client, account)
 
@@ -507,6 +512,35 @@ class LiveEngine(PaperEngine):
         except BrokerError as exc:
             self._log(cfg.id, now, "warning", f"Stop-loss op het exacte niveau zetten mislukt ({describe(exc)}); "
                       "de stop-loss op afstand blijft staan.", client_id=intent["client_id"])
+
+    async def _send_modify(self, cfg, state, intent: dict, client, account, snapshot) -> None:
+        """Move the stop-loss / take-profit at the broker (e.g. a trailing stop)."""
+        now = int(self.now())
+        pos = (state.get("account") or {}).get("position")
+        broker_pos = next((p for p in snapshot["positions"]
+                           if pos and p["position_id"] == pos.get("position_id")), None)
+        if broker_pos is None:
+            return
+        coid = client_order_id(cfg.id, intent["client_id"])
+        if not self._record(coid, cfg.id, {**intent, "side": broker_pos["side"]}, "sending",
+                            position_id=broker_pos["position_id"]):
+            return
+        digits = (await self.link.symbol(cfg.symbol))["digits"]
+        # The broker replaces both levels: send the one that does not change as it is.
+        sl = round(intent["stop_loss"], digits) if intent["stop_loss"] is not None else broker_pos["stop_loss"]
+        tp = round(intent["take_profit"], digits) if intent["take_profit"] is not None else broker_pos["take_profit"]
+        try:
+            await client.amend_sltp(account["account_id"], broker_pos["position_id"], sl, tp)
+        except BrokerError as exc:
+            self._update(coid, status="rejected", error=describe(exc))
+            self._log(cfg.id, now, "warning", f"Stop-loss verplaatsen mislukt ({describe(exc)}); de oude stop-loss "
+                      "blijft staan.", client_id=intent["client_id"])
+            return
+        self._update(coid, status="filled", price=sl)
+        d = INSTRUMENTS[cfg.symbol].digits
+        self._log(cfg.id, now, "info", f"Stop-loss bij de broker verplaatst naar {nl(sl, d)}"
+                  + (f" ({intent['reason']})" if intent.get("reason") else ""), client_id=intent["client_id"],
+                  position_id=broker_pos["position_id"])
 
     async def _send_close(self, cfg, state, intent: dict, client, account, snapshot) -> None:
         now = int(self.now())

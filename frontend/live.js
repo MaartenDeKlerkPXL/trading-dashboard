@@ -372,7 +372,9 @@ export function initLive({ navigate }) {
     }
     for (const o of orders) {
       const tr = el('tr');
-      const what = o.kind === 'open' ? `openen ${o.side}` : `sluiten${o.reason ? ` (${o.reason})` : ''}`;
+      const what = o.kind === 'open' ? `openen ${o.side}`
+        : o.kind === 'modify' ? `stop-loss verplaatsen${o.reason ? ` (${o.reason})` : ''}`
+          : `sluiten${o.reason ? ` (${o.reason})` : ''}`;
       tr.append(
         el('td', '', fmtTimeShort(o.created_at)), el('td', '', `#${o.session_id}`), el('td', '', what),
         el('td', 'num', o.lots ? fmtNumber(o.lots, 2) : (o.volume ? '—' : '—')),

@@ -54,7 +54,7 @@ export async function initOptimize({ selection, setBusy, backtest, navigate }) {
   els.folds.value = String(prefs.folds ?? 1);
 
   const currentStrategy = () => strategies.find((s) => s.key === els.strategy.value);
-  const numericParams = (strat) => strat.params.filter((p) => p.type !== 'bool');
+  const numericParams = (strat) => strat.params.filter((p) => p.type === 'int' || p.type === 'float');
 
   function defaultRange(p) {
     const base = Number(p.default);
@@ -117,13 +117,22 @@ export async function initOptimize({ selection, setBusy, backtest, navigate }) {
     for (const p of strat.params.filter((x) => !varied.has(x.name))) {
       const id = `opFixed-${p.name}`;
       const field = el('div', p.type === 'bool' ? 'field field--check field--wide' : 'field');
-      const input = el('input');
+      const input = el(p.type === 'choice' ? 'select' : 'input');
       input.id = id;
       input.dataset.param = p.name;
       const label = el('label', '', p.label);
       label.htmlFor = id;
       const value = saved[p.name] ?? p.default;
-      if (p.type === 'bool') {
+      if (p.type === 'choice') {
+        for (const option of p.choices) {
+          const opt = document.createElement('option');
+          opt.value = option;
+          opt.textContent = option;
+          input.append(opt);
+        }
+        input.value = p.choices.includes(value) ? value : p.default;
+        field.append(label, input);
+      } else if (p.type === 'bool') {
         input.type = 'checkbox';
         input.checked = Boolean(value);
         field.append(input, label);
@@ -175,6 +184,7 @@ export async function initOptimize({ selection, setBusy, backtest, navigate }) {
     for (const input of els.fixed.querySelectorAll('[data-param]')) {
       const p = strat.params.find((x) => x.name === input.dataset.param);
       if (p.type === 'bool') fixed[p.name] = input.checked;
+      else if (p.type === 'choice') fixed[p.name] = input.value;
       else {
         const v = Number(String(input.value).replace(',', '.'));
         if (input.value === '' || !Number.isFinite(v)) throw new Error(`Vul een getal in bij "${p.label}".`);

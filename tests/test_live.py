@@ -302,3 +302,26 @@ def test_kill_right_after_an_order_closes_the_new_position(live):
     assert d["position"] is None and d["trades"][-1]["exit_reason"] == "Kill switch"
     report = client.post("/api/reconcile").json()
     assert all(x["differences"] == 0 for x in report["sessions"] if x["label"].startswith("LIVE")), report
+
+
+def test_trailing_stop_is_moved_at_the_broker(live):
+    client, clock, broker = live
+    connect(client)
+    body = {**START, "strategy": "bjorgum_3commas@v1",
+            "params": {"fast": 3, "slow": 8, "use_trailing": True, "trail_trigger": 0.2, "trail_atr": 0.5}}
+    plan = client.post("/api/live/sessions/prepare", json=body).json()
+    s = client.post("/api/live/sessions", json={**body, "typed": TYPED}).json()
+    assert s["mode"] == "live", (plan, s)
+
+    def moved_twice():
+        amends = broker.fake.payloads(M.ProtoOAAmendPositionSLTPReq)
+        per_position = {}
+        for a in amends:
+            per_position[a.positionId] = per_position.get(a.positionId, 0) + 1
+        return any(n >= 2 for n in per_position.values())
+
+    run_until(client, clock, broker, moved_twice, minutes=900)
+    events = client.get(f"/api/paper/sessions/{s['id']}").json()["events"]
+    assert any(e["message"].startswith("Stop-loss bij de broker verplaatst") for e in events)
+    orders = client.get(f"/api/live/orders?session_id={s['id']}").json()
+    assert any(o["kind"] == "modify" and o["status"] == "filled" for o in orders)

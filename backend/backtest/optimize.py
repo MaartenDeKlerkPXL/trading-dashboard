@@ -55,7 +55,7 @@ def build_axes(cls: type[Strategy], ranges: list[dict]) -> list[Axis]:
     for r in ranges:
         name = r.get("name")
         p = params.get(name)
-        if p is None or p.kind == "bool":
+        if p is None or p.kind in ("bool", "choice"):
             raise ValueError(f"Parameter '{name}' kan niet gevarieerd worden.")
         if name in seen:
             raise ValueError("Kies twee verschillende parameters.")

@@ -79,7 +79,7 @@ export async function initBacktest({ selection, setBusy }) {
       const id = `btParam-${p.name}`;
       const field = document.createElement('div');
       field.className = p.type === 'bool' ? 'field field--check field--wide' : 'field';
-      const input = document.createElement('input');
+      const input = document.createElement(p.type === 'choice' ? 'select' : 'input');
       input.id = id;
       input.dataset.param = p.name;
       input.dataset.type = p.type;
@@ -87,7 +87,16 @@ export async function initBacktest({ selection, setBusy }) {
       label.htmlFor = id;
       label.textContent = p.label;
       const value = saved[p.name] ?? p.default;
-      if (p.type === 'bool') {
+      if (p.type === 'choice') {
+        for (const option of p.choices) {
+          const opt = document.createElement('option');
+          opt.value = option;
+          opt.textContent = option;
+          input.append(opt);
+        }
+        input.value = p.choices.includes(value) ? value : p.default;
+        field.append(label, input);
+      } else if (p.type === 'bool') {
         input.type = 'checkbox';
         input.checked = Boolean(value);
         field.append(input, label);
@@ -166,7 +175,8 @@ export async function initBacktest({ selection, setBusy }) {
     const params = {};
     for (const input of els.paramFields.querySelectorAll('[data-param]')) {
       const p = strat.params.find((x) => x.name === input.dataset.param);
-      params[p.name] = p.type === 'bool'
+      if (p.type === 'choice') params[p.name] = input.value;
+      else params[p.name] = p.type === 'bool'
         ? input.checked
         : readNumber(input, p.label, { min: p.min ?? -Infinity, max: p.max ?? Infinity });
     }

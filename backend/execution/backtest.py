@@ -181,6 +181,10 @@ class BacktestExecutor(BrokerExecutor):
             self._close(bar.ts, price, req.reason or "Signaal", to_eur, market=True)
             return
 
+        if req.kind == "modify":
+            self._modify(req, bar)
+            return
+
         if self.halted:
             self.log.add(bar.ts, "skip", "Order overgeslagen: de rekening is leeg.", client_id=req.client_id)
             return
@@ -198,6 +202,35 @@ class BacktestExecutor(BrokerExecutor):
                              reason_code="max_positions")
                 return
         self._open(req, bar, to_eur)
+
+    def _check_modify(self, req: OrderRequest, ts: int) -> bool:
+        """A stop-loss may only move towards the price (less risk): checked outside the strategy."""
+        p = self.pos
+        if p is None or p.side != req.side:
+            self.log.add(ts, "info", "Aanpassing genegeerd: de positie is er niet meer.", client_id=req.client_id)
+            return False
+        if req.stop_loss is not None:
+            looser = req.stop_loss < p.stop_loss if p.side == "long" else req.stop_loss > p.stop_loss
+            if looser:
+                self.log.add(ts, "risk", "Stop-loss niet verplaatst: hij mag alleen dichter naar de koers, niet verder "
+                             "weg (dat zou meer risico geven dan ingesteld).", client_id=req.client_id,
+                             reason_code="stop_widening")
+                return False
+        return True
+
+    def _modify(self, req: OrderRequest, bar: Bar) -> None:
+        if not self._check_modify(req, bar.ts):
+            return
+        p = self.pos
+        d = self.instrument.digits
+        if req.stop_loss is not None and req.stop_loss != p.stop_loss:
+            p.stop_loss = req.stop_loss
+            self.log.add(bar.ts, "info", f"Stop-loss verplaatst naar {nl(req.stop_loss, d)}"
+                         + (f" ({req.reason})" if req.reason else ""), client_id=req.client_id)
+        if req.take_profit is not None and req.take_profit != p.take_profit:
+            p.take_profit = req.take_profit
+            self.log.add(bar.ts, "info", f"Take-profit verplaatst naar {nl(req.take_profit, d)}",
+                         client_id=req.client_id)
 
     def _plan_open(self, req: OrderRequest, bar: Bar, to_eur: float) -> tuple[float, float, float | None] | None:
         """Fill price, lots and take-profit for an opening order at this bar's open, after every check.

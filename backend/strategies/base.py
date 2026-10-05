@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal
 
 Side = Literal["long", "short"]
-Action = Literal["long", "short", "flat"]
+Action = Literal["long", "short", "flat", "adjust"]
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,10 @@ class Position:
 class Signal:
     """The position the strategy wants from the next bar on.
 
-    action      "long" / "short" opens (or keeps / reverses to) that side, "flat" closes.
+    action      "long" / "short" opens (or keeps / reverses to) that side, "flat" closes,
+                "adjust" moves the stop-loss (and/or take-profit) of the open position,
+                e.g. for a trailing stop. A stop-loss may only move towards the price
+                (less risk), never away from it.
     size        fraction of the standard risk per trade (1.0 = full configured risk).
     stop_loss   absolute price. Required to open a position: sizing is based on it,
                 and in live trading it is placed at the broker.
@@ -97,19 +100,26 @@ class Signal:
 class Param:
     name: str
     label: str            # Dutch label for the UI
-    default: float | int | bool
+    default: float | int | bool | str
     min: float | None = None
     max: float | None = None
     step: float | None = None
     help: str = ""
+    choices: tuple[str, ...] = ()   # a pick list, like Pine's input.string(options=[...])
 
     @property
     def kind(self) -> str:
+        if self.choices:
+            return "choice"
         if isinstance(self.default, bool):
             return "bool"
         return "int" if isinstance(self.default, int) else "float"
 
     def coerce(self, value):
+        if self.kind == "choice":
+            if value not in self.choices:
+                raise ValueError(f"'{self.label}' moet een van {', '.join(self.choices)} zijn")
+            return value
         if self.kind == "bool":
             if isinstance(value, str):
                 return value.lower() in ("1", "true", "ja", "on")

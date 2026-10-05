@@ -21,7 +21,7 @@ SIZING_MODES = ("realistic", "fractional")
 class OrderRequest:
     """What the runner asks an executor to do. Executed at the next available price."""
 
-    kind: Literal["open", "close"]
+    kind: Literal["open", "close", "modify"]
     client_id: str                  # unique and deterministic: a restart never duplicates an order
     signal_ts: int
     side: Side | None = None        # for "open"

@@ -36,7 +36,7 @@ def describe(cls: type[Strategy]) -> dict:
         "code_hash": code_hash(cls),
         "params": [
             {"name": p.name, "label": p.label, "type": p.kind, "default": p.default,
-             "min": p.min, "max": p.max, "step": p.step, "help": p.help}
+             "min": p.min, "max": p.max, "step": p.step, "help": p.help, "choices": list(p.choices)}
             for p in cls.params
         ],
     }

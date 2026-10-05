@@ -29,6 +29,17 @@ class Runner:
         ts = bars[count - 1].ts
         prefix = f"{self.strategy.key()}:{self.symbol}:{ts}"
         fmt = lambda v: "—" if v is None else nl(v, self.digits)  # noqa: E731
+        if signal.action == "adjust":
+            if position.side and (signal.stop_loss is not None or signal.take_profit is not None):
+                req = OrderRequest("modify", f"{prefix}:modify", ts, side=position.side, stop_loss=signal.stop_loss,
+                                   take_profit=signal.take_profit, reason=signal.reason)
+                self.log.add(ts, "order", "Order: " + " en ".join(
+                    part for part in (f"stop-loss naar {fmt(signal.stop_loss)}" if signal.stop_loss is not None else "",
+                                      f"take-profit naar {fmt(signal.take_profit)}" if signal.take_profit is not None
+                                      else "") if part)
+                             + (f" — {signal.reason}" if signal.reason else ""), client_id=req.client_id)
+                self.executor.submit([req])
+            return
         self.log.add(
             ts, "signal",
             f"Signaal {signal.action}" + (f" — {signal.reason}" if signal.reason else "")
