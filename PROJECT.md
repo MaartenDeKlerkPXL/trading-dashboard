@@ -1,7 +1,7 @@
 # Projectkeuzes
 
 Dit bestand legt vast wat we hebben afgesproken, zodat keuzes niet ongemerkt veranderen.
-Laatst bijgewerkt: fase 4.
+Laatst bijgewerkt: fase 5.
 
 ## Afspraken
 
@@ -88,9 +88,40 @@ Laatst bijgewerkt: fase 4.
 - **Evaluatiekaart.** Per sessie leg je vooraf criteria vast, bijvoorbeeld "na 28 dagen: rendement hooguit 5 procentpunt naast de backtest". Na het **vastleggen** kunnen de criteria niet meer veranderen. Notities en het besluit (doorgaan / aanpassen / stoppen) blijven altijd aanpasbaar.
 - **Mac wakker houden.** Zolang er een sessie actief is, voorkomt het dashboard op macOS dat de Mac in slaap valt (`caffeinate`).
 
+## Risico, kill switch, meldingen en reconciliatie (fase 5)
+
+- **Harde limieten** staan in `config.toml` onder `[risk]`. De executor dwingt ze af, buiten de strategie om; een strategie kan ze niet overschrijven. Elke ingreep komt in het logboek als "Risicoregel".
+  - **Max risico per trade (2%).** Vraagt een strategie of instelling meer, dan wordt de positie verkleind. Een paper-sessie met meer dan 2% risico start niet.
+  - **Max positiegrootte per instrument** (standaard 1 lot; BTCUSD 0,5 en ETHUSD 5). Een grotere positie wordt verkleind.
+  - **Max dagverlies (2%)**, per strategie (elke paper-strategie heeft een eigen rekening), gemeten vanaf 00:00 Nederlandse tijd inclusief open posities. Bij het bereiken: positie sluiten, wachtende orders annuleren en tot middernacht geen nieuwe posities.
+  - **Max 3 open posities**, over alle strategieën samen. De vierde wordt geweigerd. Wil je met meer paper-strategieën tegelijk testen, verhoog dan `max_open_positions`.
+  - **Weekendregel.** Forex- en metaalposities die (na kosten) in de winst staan, worden vanaf 30 minuten vóór de sluiting op vrijdag (17:00 New York, meestal 23:00 bij ons) gesloten. Posities in verlies blijven open met hun stop-loss. Crypto handelt door.
+- **Backtests** draaien standaard zonder deze limieten: dan zie je de strategie op zichzelf. Met het vinkje "Harde risicolimieten toepassen" rekent een backtest met dezelfde limieten. De vergelijking paper tegenover backtest gebruikt de limieten altijd. Alleen de limiet op open posities over alle strategieën samen kan een losse backtest niet nabootsen.
+- **Een sessie stoppen** sluit nu ook de open positie (tegen de laatste koers) en annuleert wachtende orders. Een gestopte sessie wordt nooit meer verwerkt.
+- **Kill switch** (pagina Risico & alerts, twee keer klikken):
+  - pauzeert alle strategieën;
+  - annuleert wachtende orders;
+  - sluit standaard alle open posities. Je kunt dat uitvinken; dan blijven ze open met hun stop-loss.
+
+  Zolang de kill switch actief is, kan niets starten of hervatten, en staat er bovenaan elke pagina een rode balk. Na het opheffen hervat je de strategieën zelf.
+- **E-mail** (alleen urgent, hooguit één per probleem per uur):
+  - de loop is 3 rondes achter elkaar mislukt of gecrasht;
+  - het dashboard is onverwacht gestopt (gemeld bij de volgende start);
+  - koersen of broker zijn langer dan 15 minuten onbereikbaar.
+
+  Instellen: `docs/EMAIL_MELDINGEN.md`. Optioneel kan een externe heartbeat (healthchecks.io) je mailen als de hele Mac uitvalt.
+- **Reconciliatie** draait elke 5 minuten. Bij paper trading controleert ze:
+  - of het saldo klopt met alle trades;
+  - of het aantal trades en de trade-nummers kloppen;
+  - of de equity klopt;
+  - of elke open positie een stop-loss heeft;
+  - of het aantal open posities binnen de limiet blijft.
+
+  In fase 6 vergelijkt ze met wat de broker meldt. Een afwijking verschijnt op de pagina Risico & alerts. E-mail daarvoor staat uit (`alerts.email_on_reconciliation`) totdat je anders beslist.
+
 ## Nog open (vragen we op het juiste moment)
 
-- **Reconciliatie-meldingen (fase 5):** wil je een e-mail als je eigen administratie en die van de broker niet overeenkomen? Uitleg volgt in fase 5.
+- **Reconciliatie-e-mail:** wil je een e-mail bij een afwijking tussen je administratie en de broker? Staat nu uit.
 
 ## Fases
 
@@ -98,5 +129,5 @@ Laatst bijgewerkt: fase 4.
 2. ✅ Backtest-engine met één voorbeeldstrategie en metrics
 3. ✅ Strategieën vergelijken, runs opslaan, CSV-import uit TradingView, Pine-omzetting, optimaliseren
 4. ✅ Paper trading-loop, logging, vergelijking live vs. backtest, evaluatiekaarten
-5. Risk engine, kill switch, e-mailmeldingen, reconciliatie
+5. ✅ Risk engine, kill switch, e-mailmeldingen, reconciliatie
 6. Live-executor: standaard uit, eerst alleen testen op een demo-account

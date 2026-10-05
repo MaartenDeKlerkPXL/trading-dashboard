@@ -8,7 +8,7 @@ import {
 const POLL_MS = 15000;
 const EVENT_LABELS = {
   signal: 'Signaal', order: 'Order', fill: 'Uitvoering', exit: 'Gesloten', skip: 'Overgeslagen',
-  warning: 'Let op', info: 'Info', error: 'Fout',
+  warning: 'Let op', info: 'Info', error: 'Fout', risk: 'Risicoregel',
 };
 const STATUS_ICON = { pass: '✓', fail: '✗', pending: '…' };
 const STATUS_TEXT = { pass: 'voldaan', fail: 'niet voldaan', pending: 'nog te vroeg' };
@@ -249,7 +249,7 @@ export function initPaper({ selection, backtest, navigate }) {
       let armed = null;
       stop.addEventListener('click', () => {
         if (!armed) {
-          stop.textContent = 'Zeker? Definitief';
+          stop.textContent = s.position ? 'Zeker? Sluit positie' : 'Zeker? Definitief';
           stop.classList.add('is-armed');
           armed = setTimeout(() => { armed = null; stop.textContent = 'Stoppen'; stop.classList.remove('is-armed'); }, 3000);
           return;

@@ -39,6 +39,7 @@ class CommonSettings(BaseModel):
     slippage: float | None = None
     commission_per_lot: float | None = None
     financing_pct: float = 6.0
+    apply_risk: bool = False            # apply the hard risk limits from config.toml, as in paper/live
 
 
 class BacktestRequest(CommonSettings):
@@ -144,6 +145,7 @@ async def prepare(store: CandleStore, settings: Settings, common: CommonSettings
             mode=common.sizing_mode,
             leverage=account.leverage,
         ),
+        risk=settings.risk if common.apply_risk else None,
     )
     try:
         config.validate()
@@ -165,6 +167,7 @@ def settings_dict(setup: Setup, strategy: Strategy) -> dict:
                   "commission_per_lot": cfg.costs.commission_per_lot,
                   "financing_pct": cfg.costs.financing_pct},
         "currency": "EUR", "quote_currency": setup.instrument.quote_currency,
+        "apply_risk": cfg.risk is not None,
     }
 
 

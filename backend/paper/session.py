@@ -23,6 +23,7 @@ from ..data.store import resample
 from ..execution.base import CostModel, SizingRules
 from ..execution.events import EventLog
 from ..execution.paper import PaperExecutor
+from ..risk import RiskLimits
 from ..runner import Runner
 from ..strategies.base import Bar, Strategy
 
@@ -90,7 +91,10 @@ def advance(
     strategy_cls: type[Strategy],
     instrument: Instrument,
     offline_after: int = OFFLINE_AFTER,
+    risk: RiskLimits | None = None,
+    open_elsewhere: int = 0,
 ) -> AdvanceResult:
+    """risk: hard limits enforced by the executor. open_elsewhere: positions open in other sessions."""
     state = dict(state)
     tf = cfg.tf_seconds
     log = EventLog()
@@ -100,9 +104,12 @@ def advance(
         SizingRules(cfg.risk_pct, cfg.sizing_mode, cfg.leverage),
         cfg.capital,
         log,
+        risk=risk,
+        bar_seconds=60,
     )
     if state["account"]:
         executor.restore(state["account"])
+    executor.open_elsewhere = open_elsewhere
     strategy = strategy_cls(**cfg.params)
     runner = Runner(strategy, executor, cfg.symbol, log, digits=instrument.digits)
 

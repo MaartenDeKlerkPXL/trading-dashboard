@@ -8,9 +8,11 @@ take-profit could have been hit, the stop-loss is assumed to come first.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 
 from ..data.instruments import Instrument
+from ..risk import WEEKEND_CATEGORIES, RiskLimits, before_weekend, day_key
 from ..strategies.base import Bar, Position, Side
 from .base import BrokerExecutor, CostModel, OrderRequest, SizingRules, size_position
 from .events import EventLog, nl, nl_lots
@@ -45,8 +47,11 @@ class _Open:
 class BacktestExecutor(BrokerExecutor):
     mode = "backtest"
 
-    def __init__(self, instrument: Instrument, costs: CostModel, sizing: SizingRules, capital: float, log: EventLog):
+    def __init__(self, instrument: Instrument, costs: CostModel, sizing: SizingRules, capital: float, log: EventLog,
+                 risk: RiskLimits | None = None, bar_seconds: int = 60):
         self.instrument = instrument
+        self.risk = risk                # hard limits; None = pure strategy test without limits
+        self.bar_seconds = bar_seconds  # length of the bars this executor is fed
         self.costs = costs
         self.sizing = sizing
         self.log = log
@@ -60,6 +65,10 @@ class BacktestExecutor(BrokerExecutor):
         self.bars_in_market = 0
         self.halted = False
         self.trade_offset = 0   # trades closed in earlier sessions of a long-running (paper) account
+        self.open_elsewhere = 0  # open positions of other strategies that count towards the same limit
+        self.day: int | None = None
+        self.day_start_equity = float(capital)
+        self.blocked_day: int | None = None  # daily loss limit hit on this day: no new positions
 
     # ---------- BrokerExecutor ----------
 
@@ -77,14 +86,30 @@ class BacktestExecutor(BrokerExecutor):
 
     def on_bar(self, bar: Bar, to_eur: float) -> None:
         self.bar_index += 1
+        if self.risk:
+            day = day_key(bar.ts, self.risk.timezone)
+            if day != self.day:
+                self.day, self.day_start_equity = day, self.last_equity
         self._charge_financing(bar, to_eur)
         pending, self.pending = self.pending, []
         for req in pending:
             self._execute(req, bar, to_eur)
         self._check_exits(bar, to_eur)
+        if self.risk:
+            self._weekend(bar, to_eur)
         if self.pos is not None:
             self.bars_in_market += 1
         self._mark(bar, to_eur)
+        if self.risk:
+            self._daily_loss(bar, to_eur)
+
+    def cancel_pending(self, ts: int, reason: str) -> int:
+        """Cancel every order that is still waiting for a price. Returns how many."""
+        n = len(self.pending)
+        for req in self.pending:
+            self.log.add(ts, "risk", f"Order geannuleerd: {reason}.", client_id=req.client_id, reason_code="cancel")
+        self.pending = []
+        return n
 
     def close_all(self, bar: Bar, to_eur: float, reason: str) -> None:
         """Close at the last bar's close (end of the test) and update the last equity point."""
@@ -109,6 +134,7 @@ class BacktestExecutor(BrokerExecutor):
             "trade_count": self.trade_offset + len(self.trades),
             "position": asdict(self.pos) if self.pos else None,
             "pending": [asdict(r) for r in self.pending],
+            "risk": {"day": self.day, "day_start_equity": self.day_start_equity, "blocked_day": self.blocked_day},
         }
 
     def restore(self, state: dict) -> None:
@@ -120,6 +146,10 @@ class BacktestExecutor(BrokerExecutor):
         self.trade_offset = state["trade_count"]
         self.pos = _Open(**state["position"]) if state.get("position") else None
         self.pending = [OrderRequest(**r) for r in state.get("pending", [])]
+        risk = state.get("risk") or {}
+        self.day = risk.get("day")
+        self.day_start_equity = risk.get("day_start_equity", self.last_equity)
+        self.blocked_day = risk.get("blocked_day")
 
     # ---------- internals ----------
 
@@ -156,6 +186,16 @@ class BacktestExecutor(BrokerExecutor):
         if self.pos is not None:
             self.log.add(bar.ts, "skip", "Order overgeslagen: er staat al een positie open.", client_id=req.client_id)
             return
+        if self.risk:
+            if self.blocked_day is not None and self.blocked_day == self.day:
+                self.log.add(bar.ts, "risk", "Order geweigerd: het maximale dagverlies is bereikt. "
+                             "Morgen mag er weer gehandeld worden.", client_id=req.client_id, reason_code="daily_loss")
+                return
+            if self.open_elsewhere >= self.risk.max_open_positions:
+                self.log.add(bar.ts, "risk", f"Order geweigerd: er staan al {self.open_elsewhere} posities open "
+                             f"(maximum {self.risk.max_open_positions}).", client_id=req.client_id,
+                             reason_code="max_positions")
+                return
         self._open(req, bar, to_eur)
 
     def _open(self, req: OrderRequest, bar: Bar, to_eur: float) -> None:
@@ -180,12 +220,30 @@ class BacktestExecutor(BrokerExecutor):
             take_profit = None
 
         equity = self.balance
-        lots, note = size_position(equity, fill, req.stop_loss, req.risk_fraction, self.instrument, to_eur, self.sizing)
+        risk_fraction = max(0.0, min(req.risk_fraction, 1.0))
+        if self.risk and self.sizing.risk_pct * risk_fraction > self.risk.max_risk_per_trade_pct:
+            risk_fraction = self.risk.max_risk_per_trade_pct / self.sizing.risk_pct
+            self.log.add(bar.ts, "risk", f"Risico verlaagd naar de harde limiet van "
+                         f"{nl(self.risk.max_risk_per_trade_pct, 1)}% per trade.", client_id=req.client_id,
+                         reason_code="risk_per_trade")
+        lots, note = size_position(equity, fill, req.stop_loss, risk_fraction, self.instrument, to_eur, self.sizing)
         if lots <= 0:
             self.log.add(bar.ts, "skip", note, client_id=req.client_id, reason_code="size")
             return
         if note:
             self.log.add(bar.ts, "warning", note, client_id=req.client_id)
+        if self.risk and lots > self.risk.lots_limit(self.instrument.symbol):
+            limit = self.risk.lots_limit(self.instrument.symbol)
+            if self.sizing.mode == "realistic":
+                limit = round(math.floor(limit / self.instrument.lot_step + 1e-9) * self.instrument.lot_step, 8)
+            if limit < self.instrument.min_lot:
+                self.log.add(bar.ts, "risk", "Order geweigerd: de maximale positiegrootte is kleiner dan de "
+                             "kleinste lotgrootte.", client_id=req.client_id, reason_code="max_lots")
+                return
+            self.log.add(bar.ts, "risk", f"Positie verkleind van {nl_lots(lots)} naar {nl_lots(limit)} lot: "
+                         f"de maximale positiegrootte voor {self.instrument.symbol}.", client_id=req.client_id,
+                         reason_code="max_lots")
+            lots = limit
 
         units = self._units(lots)
         commission = self.costs.commission_per_lot * lots
@@ -239,6 +297,45 @@ class BacktestExecutor(BrokerExecutor):
                 return self._close(bar.ts, ask_open, "Take-profit (koersgat)", to_eur, market=False)
             if tp is not None and ask_low <= tp:
                 return self._close(bar.ts, tp, "Take-profit", to_eur, market=False)
+
+    def _exit_price(self, price: float) -> float:
+        """Price at which the open position would close now at market (price is a bid)."""
+        spread, slip = self.costs.spread, self.costs.slippage
+        return price - slip if self.pos.side == "long" else price + spread + slip
+
+    def open_pnl(self, price: float, to_eur: float) -> float:
+        """Net result in EUR if the open position were closed now at market, after all costs."""
+        p = self.pos
+        if p is None:
+            return 0.0
+        units = self._units(p.lots)
+        gross = (self._exit_price(price) - p.entry_price) * p.direction * units * to_eur
+        return gross - p.commission_eur - self.costs.commission_per_lot * p.lots - p.financing_eur
+
+    def _weekend(self, bar: Bar, to_eur: float) -> None:
+        r = self.risk
+        if (not r.weekend_close or self.pos is None or self.instrument.category not in WEEKEND_CATEGORIES
+                or not before_weekend(bar.ts + self.bar_seconds, r.weekend_close_minutes_before)):
+            return
+        pnl = self.open_pnl(bar.close, to_eur)
+        if pnl > 0:
+            self.log.add(bar.ts, "risk", f"Weekendregel: positie staat {nl(pnl)} EUR in de winst en wordt vóór "
+                         "het weekend gesloten.", reason_code="weekend")
+            self._close(bar.ts, self._exit_price(bar.close), "Weekend (in de winst)", to_eur, market=True)
+
+    def _daily_loss(self, bar: Bar, to_eur: float) -> None:
+        r = self.risk
+        if self.blocked_day == self.day or self.day_start_equity <= 0:
+            return
+        loss_pct = (self.day_start_equity - self.last_equity) / self.day_start_equity * 100
+        if loss_pct < r.max_daily_loss_pct:
+            return
+        self.blocked_day = self.day
+        self.log.add(bar.ts, "risk", f"Maximaal dagverlies bereikt ({nl(loss_pct, 2)}%, limiet "
+                     f"{nl(r.max_daily_loss_pct, 1)}%): open positie gesloten, wachtende orders geannuleerd. "
+                     "Morgen mag er weer gehandeld worden.", reason_code="daily_loss")
+        self.cancel_pending(bar.ts, "maximaal dagverlies bereikt")
+        self.close_all(bar, to_eur, "Maximaal dagverlies")
 
     def _close(self, ts: int, price: float, reason: str, to_eur: float, market: bool) -> None:
         p = self.pos

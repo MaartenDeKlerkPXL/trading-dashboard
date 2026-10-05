@@ -14,6 +14,7 @@ from ..data.instruments import FALLBACK_EUR_RATES, Instrument
 from ..execution.backtest import BacktestExecutor
 from ..execution.base import CostModel, SizingRules
 from ..execution.events import EventLog
+from ..risk import RiskLimits
 from ..runner import Runner
 from ..strategies.base import Bar, Strategy
 from .metrics import compute_metrics, drawdown_curve
@@ -59,12 +60,21 @@ class BacktestConfig:
     capital: float
     costs: CostModel
     sizing: SizingRules
+    risk: RiskLimits | None = None   # hard limits as in paper/live trading; None = the strategy on its own
 
     def validate(self) -> None:
         if not 10 <= self.capital <= 100_000_000:
             raise ValueError("Startkapitaal moet tussen €10 en €100 miljoen liggen.")
         self.costs.validate()
         self.sizing.validate()
+        if self.risk:
+            self.risk.validate()
+
+
+def bar_length(bars: list[Bar]) -> int:
+    """Seconds per bar, from the smallest gap between the first bars (weekends make other gaps longer)."""
+    gaps = [b.ts - a.ts for a, b in zip(bars[:50], bars[1:51]) if b.ts > a.ts]
+    return min(gaps) if gaps else 60
 
 
 def run_backtest(
@@ -82,7 +92,8 @@ def run_backtest(
         rates = RateSeries([], FALLBACK_EUR_RATES.get(instrument.quote_currency, 1.0), instrument.quote_currency)
 
     log = EventLog()
-    executor = BacktestExecutor(instrument, config.costs, config.sizing, config.capital, log)
+    executor = BacktestExecutor(instrument, config.costs, config.sizing, config.capital, log,
+                                risk=config.risk, bar_seconds=bar_length(bars))
     runner = Runner(strategy, executor, instrument.symbol, log, digits=instrument.digits)
 
     for i, bar in enumerate(bars):
@@ -101,6 +112,7 @@ def run_backtest(
     )
     metrics["buy_hold_pct"] = (bars[-1].close / bars[0].open - 1) * 100 if bars else None
     metrics["skipped_signals"] = sum(1 for e in log.events if e["kind"] == "skip")
+    metrics["risk_events"] = sum(1 for e in log.events if e["kind"] == "risk")
 
     warnings = []
     n = metrics["trades"]

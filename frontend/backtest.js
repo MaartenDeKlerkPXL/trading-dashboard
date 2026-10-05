@@ -28,6 +28,7 @@ export async function initBacktest({ selection, setBusy }) {
     slippage: $('btSlippage'),
     commission: $('btCommission'),
     financing: $('btFinancing'),
+    applyRisk: $('btApplyRisk'),
     resetCosts: $('btResetCosts'),
     run: $('btRun'),
     empty: $('btEmpty'),
@@ -136,6 +137,7 @@ export async function initBacktest({ selection, setBusy }) {
     els.capital.value = prefs.capital ?? state.config.account.starting_capital;
     els.risk.value = prefs.risk_pct ?? state.config.account.risk_per_trade_pct;
     els.sizing.value = prefs.sizing_mode ?? 'fractional';
+    els.applyRisk.checked = Boolean(prefs.apply_risk);
     els.oosPct.value = prefs.oos_pct ?? 30;
     applyCosts(state.symbol);
   }
@@ -186,6 +188,7 @@ export async function initBacktest({ selection, setBusy }) {
       slippage: readNumber(els.slippage, 'Slippage', { positive: true }),
       commission_per_lot: readNumber(els.commission, 'Commissie', { min: 0 }),
       financing_pct: readNumber(els.financing, 'Financiering', { min: 0, max: 100 }),
+      apply_risk: els.applyRisk.checked,
     };
   }
 
@@ -198,6 +201,7 @@ export async function initBacktest({ selection, setBusy }) {
     prefs.capital = form.capital;
     prefs.risk_pct = form.risk_pct;
     prefs.sizing_mode = form.sizing_mode;
+    prefs.apply_risk = form.apply_risk;
     prefs.costs = {
       ...(prefs.costs || {}),
       [state.symbol]: {
@@ -338,7 +342,8 @@ export async function initBacktest({ selection, setBusy }) {
       els.title.textContent = `${s.strategy_label} ${s.version} · ${s.symbol} ${s.timeframe}`;
       els.subtitle.textContent =
         `${formatDay(s.start)} – ${formatDay(s.end)} · start ${money(s.capital)} · ${fmtNumber(s.risk_pct, 1)}% risico per trade · `
-        + `${s.sizing_mode === 'realistic' ? 'hele lots' : 'exacte lotgrootte'} · hefboom 1:${s.leverage} · ${fmtParams(s.params)}`;
+        + `${s.sizing_mode === 'realistic' ? 'hele lots' : 'exacte lotgrootte'} · hefboom 1:${s.leverage} · ${fmtParams(s.params)}`
+        + `${s.apply_risk ? ' · met harde risicolimieten' : ''}`;
     }
     renderRunInfo(result);
 

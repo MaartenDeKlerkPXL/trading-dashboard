@@ -11,6 +11,7 @@ import { initOptimize } from './optimize.js';
 import { initCompare } from './compare.js';
 import { initHistory } from './history.js';
 import { initPaper } from './paper.js';
+import { initRisk } from './risk.js';
 
 const PREFS_KEY = 'td.chart.v1';
 
@@ -46,6 +47,7 @@ const views = {
   vergelijken: { el: $('view-vergelijken'), button: 'Alle strategieën draaien' },
   historie: { el: $('view-historie'), button: '' },
   paper: { el: $('view-paper'), button: '' },
+  risico: { el: $('view-risico'), button: '' },
 };
 const modules = {};
 
@@ -395,6 +397,7 @@ async function init() {
   modules.vergelijken = initCompare({ selection, setBusy, backtest, navigate });
   modules.historie = initHistory({ backtest, navigate });
   modules.paper = initPaper({ selection, backtest, navigate });
+  modules.risico = initRisk();
 
   window.addEventListener('hashchange', () => showView(location.hash.slice(1)));
   showView(location.hash.slice(1) || 'grafiek');

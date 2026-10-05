@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+from .risk import RiskLimits
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT_DIR / "config.toml"
@@ -48,12 +50,23 @@ class PaperSettings:
 
 
 @dataclass(frozen=True)
+class AlertSettings:
+    feed_down_minutes: int = 15          # e-mail when prices/broker are unreachable this long
+    repeat_minutes: int = 60             # at most one e-mail per problem per this many minutes
+    loop_errors: int = 3                 # e-mail after this many failed loop rounds in a row
+    reconcile_minutes: int = 5           # how often bookkeeping is reconciled
+    email_on_reconciliation: bool = False
+
+
+@dataclass(frozen=True)
 class Settings:
     app: AppSettings = field(default_factory=AppSettings)
     account: AccountSettings = field(default_factory=AccountSettings)
     execution: ExecutionSettings = field(default_factory=ExecutionSettings)
     data: DataSettings = field(default_factory=DataSettings)
     paper: PaperSettings = field(default_factory=PaperSettings)
+    risk: RiskLimits = field(default_factory=RiskLimits)
+    alerts: AlertSettings = field(default_factory=AlertSettings)
     db_path: Path = DATA_DIR / "trading.sqlite"
 
 
@@ -82,7 +95,30 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
         execution=_section(raw, "execution", ExecutionSettings),
         data=_section(raw, "data", DataSettings),
         paper=_section(raw, "paper", PaperSettings),
+        risk=_section(raw, "risk", RiskLimits),
+        alerts=_section(raw, "alerts", AlertSettings),
     )
+    from .data.instruments import INSTRUMENTS
+
+    unknown = set(settings.risk.max_lots) - set(INSTRUMENTS)
+    if unknown:
+        raise ConfigError(f"Onbekend instrument in [risk.max_lots]: {', '.join(sorted(unknown))}")
+    if "timezone" not in raw.get("risk", {}):
+        settings = replace(settings, risk=replace(settings.risk, timezone=settings.app.timezone))
+    try:
+        settings.risk.validate()
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from None
+    a = settings.alerts
+    if not 1 <= a.feed_down_minutes <= 1440 or not 5 <= a.repeat_minutes <= 1440:
+        raise ConfigError("alerts.feed_down_minutes (1–1440) of alerts.repeat_minutes (5–1440) klopt niet.")
+    if not 1 <= a.loop_errors <= 100 or not 1 <= a.reconcile_minutes <= 1440:
+        raise ConfigError("alerts.loop_errors (1–100) of alerts.reconcile_minutes (1–1440) klopt niet.")
+    if settings.account.risk_per_trade_pct > settings.risk.max_risk_per_trade_pct:
+        raise ConfigError(
+            f"account.risk_per_trade_pct ({settings.account.risk_per_trade_pct}) is hoger dan de harde limiet "
+            f"risk.max_risk_per_trade_pct ({settings.risk.max_risk_per_trade_pct})."
+        )
     if settings.execution.mode not in EXECUTION_MODES:
         raise ConfigError(
             f"execution.mode moet een van {', '.join(EXECUTION_MODES)} zijn, niet '{settings.execution.mode}'"

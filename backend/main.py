@@ -30,8 +30,12 @@ from .data.store import CandleStore
 from .db import connect
 from .compare import build_comparison
 from .importers.tradingview import ImportError_, build_run, parse_trades
+from .alerts import Alerter, EmailSender
+from .env import load_env
+from .monitor import Monitor
 from .paper.api import build_router as paper_router
 from .paper.engine import PaperEngine
+from .risk_api import build_router as risk_router
 from .runs import RunStore
 from .system import KeepAwake
 from .tasks import TaskManager
@@ -85,8 +89,10 @@ def _validate(symbol: str, timeframe: str, start: str, end: str) -> tuple[int, i
 
 
 def create_app(settings: Settings | None = None, provider: DataProvider | None = None, store_kwargs: dict | None = None,
-               start_loop: bool = True) -> FastAPI:
+               start_loop: bool = True, env: dict | None = None, email_sender: EmailSender | None = None) -> FastAPI:
+    """env: secrets (default: the .env file). email_sender: replaces Gmail, for tests."""
     settings = settings or load_settings()
+    env = load_env() if env is None else env
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -96,14 +102,29 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         app.state.jobs = JobManager(store)
         app.state.runs = RunStore(conn)
         app.state.tasks = TaskManager()
-        app.state.paper = PaperEngine(conn, store, settings)
+        app.state.paper = paper = PaperEngine(conn, store, settings)
         app.state.keep_awake = KeepAwake(settings.paper.keep_awake)
+        app.state.alerter = alerter = Alerter(
+            conn, email_sender or EmailSender.from_env(env), settings.alerts.repeat_minutes * 60, settings.app.timezone)
+        app.state.monitor = monitor = Monitor(paper, alerter, settings, env.get("HEARTBEAT_URL", ""))
         loop_task = None
         if start_loop and settings.execution.mode == "paper":
-            paper = app.state.paper
-            loop_task = asyncio.create_task(
-                paper.run_forever(on_tick=lambda: app.state.keep_awake.update(paper.any_running()))
-            )
+            await monitor.on_startup()
+
+            async def after_tick(result, error):
+                app.state.keep_awake.update(paper.any_running())
+                await monitor.after_tick(result, error)
+
+            def loop_ended(task: asyncio.Task) -> None:
+                if not task.cancelled() and task.exception() is not None:
+                    log.error("Paper loop crashed", exc_info=task.exception())
+                    asyncio.get_running_loop().create_task(alerter.raise_(
+                        "loop_crash", "urgent", "Paper trading-loop is gestopt",
+                        f"De loop is gecrasht en draait niet meer: {task.exception()!r}. "
+                        "Herstart het dashboard (Ctrl+C, daarna ./start.sh).", email=True))
+
+            loop_task = asyncio.create_task(paper.run_forever(on_tick=after_tick))
+            loop_task.add_done_callback(loop_ended)
         try:
             yield
         finally:
@@ -111,6 +132,7 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
                 loop_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await loop_task
+                monitor.on_shutdown()
             app.state.keep_awake.stop()
             conn.close()
 
@@ -356,6 +378,7 @@ def create_app(settings: Settings | None = None, provider: DataProvider | None =
         return {"ok": True}
 
     app.include_router(paper_router(settings))
+    app.include_router(risk_router(settings))
 
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="dashboard")
     return app

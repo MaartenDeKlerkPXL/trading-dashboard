@@ -37,11 +37,16 @@
         <li><a class="sidenav__link" href="#vergelijken" data-view="vergelijken">Vergelijken</a></li>
         <li><a class="sidenav__link" href="#historie" data-view="historie">Historie</a></li>
         <li><a class="sidenav__link" href="#paper" data-view="paper">Paper trading</a></li>
-        <li><span class="sidenav__link is-disabled">Risico &amp; alerts <small>fase 5</small></span></li>
+        <li><a class="sidenav__link" href="#risico" data-view="risico">Risico &amp; alerts <span class="nav-badge" id="navAlerts" hidden></span></a></li>
       </ul>
     </nav>
 
     <main id="main" class="main">
+      <div class="kill-banner" id="killBanner" role="alert" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3L12 3zm0 6v4m0 3v.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <p id="killBannerText">Kill switch actief: alle strategieën staan stil.</p>
+        <a class="link" href="#risico">Naar Risico &amp; alerts</a>
+      </div>
       <form class="panel toolbar" id="toolbar" autocomplete="off">
         <div class="field">
           <label for="symbol">Instrument</label>
@@ -180,6 +185,11 @@
                 <label for="btOos">Out-of-sample (%)</label>
                 <input type="number" id="btOos" min="0" max="50" step="5" inputmode="numeric" aria-describedby="btOosHelp">
                 <p class="hint" id="btOosHelp">Het laatste deel van de periode wordt los getest. Zo zie je of de uitkomst ook geldt voor data die de strategie "niet kende". 0 = uit.</p>
+              </div>
+              <div class="field field--check">
+                <input type="checkbox" id="btApplyRisk" aria-describedby="btApplyRiskHint">
+                <label for="btApplyRisk">Harde risicolimieten toepassen</label>
+                <p class="hint" id="btApplyRiskHint">Zoals bij paper en live trading: maximaal dagverlies, maximaal risico per trade, maximale positiegrootte en de weekendregel. Uit = de strategie op zichzelf.</p>
               </div>
             </fieldset>
 
@@ -632,6 +642,7 @@
                   <option value="signal">signalen</option>
                   <option value="order">orders</option>
                   <option value="fill,exit">uitvoeringen</option>
+                  <option value="risk">risicoregels</option>
                   <option value="skip,warning,error">overgeslagen en fouten</option>
                 </select>
               </div>
@@ -643,6 +654,70 @@
               </table>
             </div>
           </section>
+        </section>
+      </div>
+
+      <div class="view" id="view-risico" hidden>
+        <section class="panel kill" id="rkKill">
+          <div class="kill__text">
+            <h1 class="kill__title" id="rkKillTitle">Kill switch</h1>
+            <p class="panel__hint" id="rkKillText">Zet in één keer alle strategieën stil en annuleert alle wachtende orders. Daarna kan er niets meer starten tot je de kill switch opheft.</p>
+          </div>
+          <div class="kill__actions" id="rkKillActions">
+            <label class="kill__check"><input type="checkbox" id="rkClose" checked> Open posities ook sluiten</label>
+            <button class="btn btn--kill" type="button" id="rkKillBtn">Alles stoppen</button>
+          </div>
+        </section>
+        <div class="notice" id="rkError" role="alert" hidden></div>
+
+        <section class="panel">
+          <header class="panel__head">
+            <h2 class="panel__title">Harde risicolimieten</h2>
+            <p class="panel__hint">Deze limieten worden buiten de strategieën om afgedwongen; een strategie kan ze niet overschrijven. Aanpassen doe je in <code>config.toml</code> onder <code>[risk]</code>.</p>
+          </header>
+          <div class="limits" id="rkLimits"></div>
+        </section>
+
+        <section class="panel">
+          <header class="panel__head">
+            <h2 class="panel__title">Vandaag per strategie</h2>
+            <p class="panel__hint" id="rkSessionsHint">Elke paper-strategie heeft een eigen rekening. Het dagverlies telt vanaf 00:00 Nederlandse tijd.</p>
+          </header>
+          <div class="table-wrap table-wrap--plain">
+            <table class="table" id="rkSessions">
+              <thead><tr><th scope="col">Strategie</th><th scope="col">Status</th><th scope="col" class="num">Equity</th><th scope="col">Vandaag t.o.v. de daglimiet</th><th scope="col">Positie</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel__head panel__head--row">
+            <div>
+              <h2 class="panel__title">Meldingen</h2>
+              <p class="panel__hint" id="rkEmail"></p>
+            </div>
+            <button class="btn btn--small btn--ghost" type="button" id="rkTest">Testmail versturen</button>
+          </header>
+          <p class="hint rk-monitor" id="rkMonitor"></p>
+          <ul class="alerts" id="rkAlerts"></ul>
+        </section>
+
+        <section class="panel">
+          <header class="panel__head panel__head--row">
+            <div>
+              <h2 class="panel__title">Reconciliatie</h2>
+              <p class="panel__hint">Klopt de eigen administratie met wat de rekening zegt? Bij paper trading is de rekening gesimuleerd; vanaf fase 6 staat in de rechterkolom wat de broker meldt.</p>
+            </div>
+            <button class="btn btn--small btn--ghost" type="button" id="rkReconcile">Nu controleren</button>
+          </header>
+          <p class="hint rk-monitor" id="rkReconInfo"></p>
+          <div class="table-wrap table-wrap--plain">
+            <table class="table" id="rkRecon">
+              <thead><tr><th scope="col">Sessie</th><th scope="col">Controle</th><th scope="col" class="num">Administratie</th><th scope="col" class="num">Rekening</th><th scope="col">Uitkomst</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </section>
       </div>
     </main>

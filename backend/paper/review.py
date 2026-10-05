@@ -10,20 +10,26 @@ from ..data.instruments import Instrument
 from ..data.providers import Candle
 from ..data.store import resample
 from ..execution.base import CostModel, SizingRules
+from ..risk import RiskLimits
 from ..strategies.base import Bar, Strategy
 from .session import SessionConfig
 
 
 def backtest_same_period(cfg: SessionConfig, started_at: int, m1: list[Candle], now: int,
-                         rates: RateSeries, cls: type[Strategy], instrument: Instrument) -> dict:
-    """A regular backtest on exactly the same minute data, starting decisions at the same candle."""
+                         rates: RateSeries, cls: type[Strategy], instrument: Instrument,
+                         risk: RiskLimits | None = None) -> dict:
+    """A regular backtest on exactly the same minute data, starting decisions at the same candle.
+
+    The same hard risk limits apply, except the limit on open positions over all sessions together:
+    a single backtest cannot know about the other sessions."""
     tf = cfg.tf_seconds
     bars = [Bar(*c) for c in resample([c for c in m1 if c.ts + 60 <= now], tf)]
     start_bucket = started_at - started_at % tf
     first = next((i for i, b in enumerate(bars) if b.ts >= start_bucket), len(bars))
     warm = cls(**cfg.params).warmup()
     window = bars[max(0, first - warm + 1):]
-    config = BacktestConfig(cfg.capital, CostModel(**cfg.costs), SizingRules(cfg.risk_pct, cfg.sizing_mode, cfg.leverage))
+    config = BacktestConfig(cfg.capital, CostModel(**cfg.costs), SizingRules(cfg.risk_pct, cfg.sizing_mode, cfg.leverage),
+                            risk)
     return run_backtest(window, cls(**cfg.params), instrument, config, rates, close_at_end=False)
 
 

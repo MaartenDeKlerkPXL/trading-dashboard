@@ -13,7 +13,7 @@ from ..backtest.service import eur_rates, make_strategy, strategy_class
 from ..config import Settings
 from ..data.instruments import INSTRUMENTS, TIMEFRAMES
 from ..execution.base import CostModel, SizingRules
-from .engine import PaperEngine
+from .engine import STATUS_LABELS, KillSwitchActive, PaperEngine
 from .review import CRITERIA, backtest_same_period, comparison, evaluate, validate_criteria
 
 DECISIONS = {"open": "Nog geen besluit", "doorgaan": "Doorgaan", "aanpassen": "Aanpassen (nieuwe versie)",
@@ -95,6 +95,13 @@ def build_router(settings: Settings) -> APIRouter:
                 raise ValueError("Startkapitaal moet tussen €10 en €100 miljoen liggen.")
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
+        if body.risk_pct is not None and body.risk_pct > settings.risk.max_risk_per_trade_pct:
+            raise HTTPException(400, f"Risico per trade mag niet hoger zijn dan de harde limiet van "
+                                     f"{settings.risk.max_risk_per_trade_pct:g}% (zie config.toml).")
+        try:
+            engine(request).ensure_trading_allowed()
+        except KillSwitchActive as exc:
+            raise HTTPException(409, str(exc)) from None
         session_id = engine(request).create({
             "symbol": body.symbol, "timeframe": body.timeframe, "strategy": cls.key(), "params": strategy.p,
             "capital": capital, "risk_pct": sizing.risk_pct, "sizing_mode": sizing.mode,
@@ -107,17 +114,24 @@ def build_router(settings: Settings) -> APIRouter:
 
     @router.post("/sessions/{session_id}/{action}")
     async def change(session_id: int, action: str, request: Request):
-        row = session_row(request, session_id)
-        current = row["status"]
         eng = engine(request)
-        if action == "pause" and current == "running":
-            eng.set_status(session_id, "paused")
-        elif action == "resume" and current == "paused":
-            eng.set_status(session_id, "running")
-        elif action == "stop" and current in ("running", "paused", "blocked"):
-            eng.set_status(session_id, "stopped")
-        else:
-            raise HTTPException(400, f"Dat kan niet: de sessie is {row['status']}.")
+        async with eng.lock:   # never change a session in the middle of a loop round
+            row = session_row(request, session_id)
+            current = row["status"]
+            if action == "pause" and current == "running":
+                eng.set_status(session_id, "paused")
+            elif action == "resume" and current == "paused":
+                try:
+                    eng.ensure_trading_allowed()
+                except KillSwitchActive as exc:
+                    raise HTTPException(409, str(exc)) from None
+                eng.set_status(session_id, "running")
+            elif action == "stop" and current in ("running", "paused", "blocked"):
+                # A stopped session is never processed again: close its position and cancel its orders.
+                await eng.flatten(row, "sessie gestopt")
+                eng.set_status(session_id, "stopped")
+            else:
+                raise HTTPException(400, f"Dat kan niet: de sessie is {STATUS_LABELS[current]}.")
         request.app.state.keep_awake.update(eng.any_running())
         return eng.summary(eng.row(session_id))
 
@@ -154,7 +168,7 @@ def build_router(settings: Settings) -> APIRouter:
         start, m1 = eng.candles(cfg, state["started_at"], now)
         rates = await eur_rates(eng.store, INSTRUMENTS[cfg.symbol], start, now)
         backtest = await run_in_threadpool(backtest_same_period, cfg, state["started_at"], m1, now, rates, cls,
-                                           INSTRUMENTS[cfg.symbol])
+                                           INSTRUMENTS[cfg.symbol], settings.risk)
         return comparison(cfg, state["started_at"], eng.equity(session_id), eng.trades(session_id),
                           eng.metrics(session_id), backtest)
 

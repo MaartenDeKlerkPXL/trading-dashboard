@@ -3,7 +3,7 @@
 Een lokaal trading dashboard voor backtesten, paper trading en (later) live orders.
 Alles draait op je eigen Mac. Het dashboard open je in de browser op <http://localhost:8000>.
 
-> **Status: fase 4.** Backtesten, optimaliseren, vergelijken, TradingView-import en paper trading (nepgeld, live koersen).
+> **Status: fase 5.** Backtesten, optimaliseren, vergelijken, TradingView-import, paper trading (nepgeld, live koersen), harde risicolimieten, kill switch, e-mailmeldingen en reconciliatie.
 > Er worden nog geen echte orders geplaatst.
 
 ---
@@ -77,9 +77,9 @@ cd ~/Documents/GitHub/trading-dashboard
 ./test.sh
 ```
 
-Het is gelukt als de laatste regel iets zegt als `76 passed`.
+Het is gelukt als de laatste regel iets zegt als `99 passed`.
 
-De tests gebruiken geen internet en plaatsen nooit orders.
+De tests gebruiken geen internet, plaatsen nooit orders en versturen nooit e-mail.
 
 ---
 
@@ -87,7 +87,9 @@ De tests gebruiken geen internet en plaatsen nooit orders.
 
 Alle instellingen staan in `config.toml`. Je kunt dat bestand openen met TextEdit of VS Code. Na een wijziging herstart je de app: eerst `Ctrl + C`, daarna opnieuw `./start.sh`.
 
-API-sleutels komen later in een bestand `.env`. Kopieer daarvoor `.env.example` naar `.env`. Het bestand `.env` wordt nooit naar GitHub gestuurd.
+Wachtwoorden en API-sleutels staan in een bestand `.env`. Kopieer daarvoor `.env.example` naar `.env`. Het bestand `.env` wordt nooit naar GitHub gestuurd. E-mailmeldingen instellen: zie `docs/EMAIL_MELDINGEN.md`.
+
+De harde risicolimieten staan in `config.toml` onder `[risk]`, de meldingen onder `[alerts]`.
 
 ## Code bijwerken
 
@@ -106,8 +108,9 @@ Draaide het dashboard al? Stop het dan eerst met `Ctrl + C`, haal de update op m
 | `backend/strategies/` | De strategieën: elk bestand is één strategie met een versie (bijv. `sma_cross_v1.py`) |
 | `backend/execution/` | De "executors": backtest en paper, live volgt in fase 6 |
 | `backend/paper/` | De paper trading-loop, de vergelijking met de backtest en de evaluatiekaarten |
-| `frontend/` | Het dashboard: `index.html`, `style.css` en één script per pagina (`script.js`, `backtest.js`, `optimize.js`, `compare.js`, `history.js`, `paper.js`, gedeeld: `common.js`) |
-| `docs/` | Uitleg: TradingView-strategieën omzetten, cTrader voorbereiden |
+| `backend/risk.py`, `alerts.py`, `monitor.py`, `reconcile.py` | Harde risicolimieten, e-mailmeldingen, bewaking van de loop en reconciliatie |
+| `frontend/` | Het dashboard: `index.html`, `style.css` en één script per pagina (`script.js`, `backtest.js`, `optimize.js`, `compare.js`, `history.js`, `paper.js`, `risk.js`, gedeeld: `common.js`) |
+| `docs/` | Uitleg: TradingView-strategieën omzetten, cTrader voorbereiden, e-mailmeldingen instellen |
 | `tests/` | Automatische tests |
 | `data/` | Je lokale database en logbestanden (niet op GitHub) |
 | `PROJECT.md` | Gemaakte keuzes en de planning per fase |

@@ -29,3 +29,27 @@ default_timeframe = "H1"
 poll_seconds = 30
 # Keep this Mac awake while paper strategies are running (macOS only).
 keep_awake = true
+
+[risk]
+# Hard limits. They are enforced outside the strategies: a strategy cannot override them.
+# Each paper session is its own account; daily loss and position size count per session.
+max_daily_loss_pct = 2.0        # at this loss since 00:00 (Dutch time): close, cancel, stop until tomorrow
+max_open_positions = 3          # open positions over all running strategies together
+max_risk_per_trade_pct = 2.0    # a trade never risks more than this % of equity
+max_lots_default = 1.0          # max position size (lots) for instruments not listed below
+weekend_close = true            # forex/metals: close positions that are in profit before the weekend
+weekend_close_minutes_before = 30   # ... this many minutes before Friday's close (17:00 New York)
+
+[risk.max_lots]
+XAUUSD = 1.0
+XAGUSD = 1.0
+BTCUSD = 0.5
+ETHUSD = 5.0
+
+[alerts]
+# E-mail only for urgent problems. The address and Gmail app password go in .env.
+feed_down_minutes = 15          # prices/broker unreachable this long
+repeat_minutes = 60             # at most one e-mail per problem per hour
+loop_errors = 3                 # the loop failed this many rounds in a row
+reconcile_minutes = 5           # how often the bookkeeping is reconciled
+email_on_reconciliation = false # e-mail when the reconciliation finds a difference

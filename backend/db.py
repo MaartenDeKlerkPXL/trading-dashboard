@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -101,7 +102,38 @@ MIGRATIONS: list[str] = [
         updated_at INTEGER NOT NULL
     );
     """,
+    """
+    CREATE TABLE app_state (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL                    -- JSON
+    ) WITHOUT ROWID;
+    CREATE TABLE alerts (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        key         TEXT NOT NULL,             -- one problem, e.g. 'feed:XAUUSD'
+        level       TEXT NOT NULL,             -- urgent | warning | info
+        title       TEXT NOT NULL,
+        message     TEXT NOT NULL,
+        first_at    INTEGER NOT NULL,
+        last_at     INTEGER NOT NULL,
+        count       INTEGER NOT NULL DEFAULT 1,
+        emailed_at  INTEGER,
+        email_error TEXT,
+        resolved_at INTEGER
+    );
+    CREATE INDEX alerts_key ON alerts (key, resolved_at);
+    """,
 ]
+
+
+def get_state(conn: sqlite3.Connection, key: str, default=None):
+    row = conn.execute("SELECT value FROM app_state WHERE key=?", (key,)).fetchone()
+    return json.loads(row[0]) if row else default
+
+
+def set_state(conn: sqlite3.Connection, key: str, value) -> None:
+    with conn:
+        conn.execute("INSERT INTO app_state (key, value) VALUES (?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, json.dumps(value)))
 
 
 def connect(path: Path) -> sqlite3.Connection:
